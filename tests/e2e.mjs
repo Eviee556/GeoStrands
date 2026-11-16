@@ -5,6 +5,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import validator from 'gltf-validator';
 import { PNG } from 'pngjs';
+import zlib from 'node:zlib';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 
@@ -69,7 +70,7 @@ await group('sample project opens', async () => {
   check('sample project opens', true, `${CARDS} cards, atlas ${await page.textContent('#budget-texmem')}`);
 });
 
-const EXPORTS = [['gltf', 1], ['obj-plain', 1], ['obj-mtl', 3], ['fbx', 1], ['usd', 2], ['usd-curves', 1], ['simple', 6]];
+const EXPORTS = [['gltf', 1], ['obj-plain', 1], ['obj-mtl', 3], ['fbx', 1], ['usd', 2], ['usd-curves', 1], ['simple', 1]];
 await group('exports triggered', async () => {
   await page.click('.tab-btn[data-tab="export"]');
   await page.click('#btn-export-browse'); // web build: sets the folder to "Downloads"
@@ -171,7 +172,22 @@ await group('USD curves', async () => {
 });
 
 // --- Texture maps ---
-const pngs = Object.entries(files).flatMap(([id, fs]) => Object.keys(fs).filter((f) => f.endsWith('.png')).map((f) => [`${id}/${f}`, fs[f]]));
+// Map export bundles several PNGs into one store-only zip: unpack it and verify each entry's CRC.
+await group('maps zip', async () => {
+  const zip = files.simple?.['hair_maps.zip'];
+  if (!zip) throw new Error(`hair_maps.zip not downloaded (got: ${Object.keys(files.simple || {}).join(', ')})`);
+  let crcOk = 0;
+  for (let p = 0; zip.readUInt32LE(p) === 0x04034b50;) {
+    const size = zip.readUInt32LE(p + 18), nameLen = zip.readUInt16LE(p + 26), extra = zip.readUInt16LE(p + 28);
+    const name = zip.toString('utf8', p + 30, p + 30 + nameLen);
+    const data = zip.subarray(p + 30 + nameLen + extra, p + 30 + nameLen + extra + size);
+    if (zlib.crc32(data) === zip.readUInt32LE(p + 14)) crcOk++;
+    files.simple[name] = data;
+    p += 30 + nameLen + extra + size;
+  }
+  check('maps zip entries valid', crcOk === 6, `${crcOk}/6 entries, CRC ok`);
+});
+const pngs =Object.entries(files).flatMap(([id, fs]) => Object.keys(fs).filter((f) => f.endsWith('.png')).map((f) => [`${id}/${f}`, fs[f]]));
 check('texture maps downloaded', pngs.length >= 8, `${pngs.length} png(s)`);
 for (const [f, buf] of pngs) await group(`PNG ${f}`, async () => {
   const { width, height, data } = PNG.sync.read(buf);

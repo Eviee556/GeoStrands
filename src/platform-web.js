@@ -59,6 +59,50 @@
   };
   const textBlob = (s) => new Blob([s], { type: 'text/plain' });
 
+  // Minimal store-only ZIP (no compression: the entries are PNGs, already compressed).
+  // One download instead of many avoids the browser's "multiple downloads" block.
+  const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    return c >>> 0;
+  });
+  const crc32 = (bytes) => {
+    let c = 0xffffffff;
+    for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  };
+  async function zipBlob(entries) { // entries: [{ name, blob }]
+    const enc = new TextEncoder();
+    const parts = [], central = [];
+    let offset = 0;
+    const now = new Date(); // MS-DOS date/time fields
+    const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
+    const dosDate = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+    for (const { name, blob } of entries) {
+      const data = new Uint8Array(await blob.arrayBuffer());
+      const nameBytes = enc.encode(name);
+      const crc = crc32(data);
+      const local = new DataView(new ArrayBuffer(30));
+      local.setUint32(0, 0x04034b50, true); local.setUint16(4, 20, true); local.setUint16(6, 0x0800, true); // UTF-8 names
+      local.setUint16(10, dosTime, true); local.setUint16(12, dosDate, true);
+      local.setUint32(14, crc, true); local.setUint32(18, data.length, true); local.setUint32(22, data.length, true);
+      local.setUint16(26, nameBytes.length, true);
+      const cd = new DataView(new ArrayBuffer(46));
+      cd.setUint32(0, 0x02014b50, true); cd.setUint16(4, 20, true); cd.setUint16(6, 20, true); cd.setUint16(8, 0x0800, true);
+      cd.setUint16(12, dosTime, true); cd.setUint16(14, dosDate, true);
+      cd.setUint32(16, crc, true); cd.setUint32(20, data.length, true); cd.setUint32(24, data.length, true);
+      cd.setUint16(28, nameBytes.length, true); cd.setUint32(42, offset, true);
+      parts.push(local, nameBytes, data);
+      central.push(cd, nameBytes);
+      offset += 30 + nameBytes.length + data.length;
+    }
+    const cdSize = central.reduce((s, p) => s + p.byteLength, 0);
+    const end = new DataView(new ArrayBuffer(22));
+    end.setUint32(0, 0x06054b50, true); end.setUint16(8, entries.length, true); end.setUint16(10, entries.length, true);
+    end.setUint32(12, cdSize, true); end.setUint32(16, offset, true);
+    return new Blob([...parts, ...central, end], { type: 'application/zip' });
+  }
+
   window.hcsAPI = {
     openAtlas: () => pickBinary('.psd,.png,.jpg,.jpeg'),
     importBrushTexture: () => pickBinary('.png,.jpg,.jpeg'),
@@ -79,7 +123,14 @@
 
     // Browsers can't write into an arbitrary folder, so "folder" exports go to the downloads folder.
     chooseExportFolder: async () => 'Downloads',
-    writeExportFiles: async (_folder, files) => files.map((f) => download(f.filename, b64ToBlob(f.dataURL.split(',')[1] || '', 'image/png'))),
+    // Several maps are bundled into one <prefix>_maps.zip; a single file downloads as-is.
+    writeExportFiles: async (_folder, files) => {
+      const toBlob = (f) => b64ToBlob(f.dataURL.split(',')[1] || '', 'image/png');
+      if (files.length === 1) return [download(files[0].filename, toBlob(files[0]))];
+      const zipName = files[0].filename.replace(/_[^_]*$/, '') + '_maps.zip';
+      download(zipName, await zipBlob(files.map((f) => ({ name: f.filename, blob: toBlob(f) }))));
+      return files.map((f) => f.filename);
+    },
 
     autosaveWrite: async (_knownPath, json) => {
       localStorage.setItem(AUTOSAVE_KEY, JSON.stringify({ content: json, mtime: new Date().toISOString() }));
