@@ -118,7 +118,9 @@ document.getElementById('btn-import-atlas').addEventListener('click', async () =
 // --- Undo: snapshot store.regions before any mutation ---
 let regionUndoStack = [];
 function pushRegionUndo() {
-  regionUndoStack.push(JSON.stringify(store.regions));
+  const snap = { regions: JSON.stringify(store.regions), guideRegions: null };
+  emit('region-undo-snapshot', snap); // app.js fills guideRegions, since guides point at regions by index
+  regionUndoStack.push(snap);
   if (regionUndoStack.length > 30) regionUndoStack.shift();
 }
 export function clearAtlasUndo() {
@@ -126,10 +128,12 @@ export function clearAtlasUndo() {
 }
 export function undoAtlas() {
   if (regionUndoStack.length === 0) return false;
-  store.regions = JSON.parse(regionUndoStack.pop());
+  const snap = regionUndoStack.pop();
+  store.regions = JSON.parse(snap.regions);
   refreshRegionList();
   redraw();
   emit('regions-changed', store.regions);
+  emit('region-undo-restore', snap.guideRegions);
   return true;
 }
 
@@ -165,6 +169,7 @@ document.getElementById('btn-clear-regions').addEventListener('click', () => {
   refreshRegionList();
   redraw();
   emit('regions-changed', store.regions);
+  emit('regions-cleared');
 });
 
 function refreshRegionList() {

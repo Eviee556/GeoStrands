@@ -1,0 +1,22 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # playwright-core's own CLI, so the browser build matches the pinned playwright-core version
+      - run: npx playwright-core install --with-deps chromium
+      - run: npm run build
+      - run: npm test

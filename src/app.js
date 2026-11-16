@@ -1,6 +1,7 @@
 import * as THREE from './vendor/three.module.js';
 import { OrbitControls } from './vendor/controls/OrbitControls.js';
 import { OBJLoader } from './vendor/OBJLoader.js';
+import { computeBoundsTree, acceleratedRaycast } from './vendor/three-mesh-bvh/index.module.js';
 import { EffectComposer } from './vendor/postprocessing/EffectComposer.js';
 import { RenderPass } from './vendor/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from './vendor/postprocessing/UnrealBloomPass.js';
@@ -236,6 +237,10 @@ const headMat = new THREE.MeshStandardMaterial({
   side: THREE.DoubleSide, // needed so inside-out raycasts (see headSurfaceRadiusAt) register hits
 });
 const headMesh = new THREE.Mesh(headGeo, headMat);
+// BVH-accelerated raycasts: physics casts against the head once per guide point per step.
+THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
+headMesh.raycast = acceleratedRaycast;
+headGeo.computeBoundsTree();
 headMesh.castShadow = true;
 headMesh.receiveShadow = true;
 headMesh.position.set(0, 0.15, 0);
@@ -273,6 +278,7 @@ function applyHeadObjGroup(obj) {
   // normals came from the file (or mergeGeometries' copy of them) stay valid.
 
   headMesh.geometry.dispose();
+  merged.computeBoundsTree();
   headMesh.geometry = merged;
   return true;
 }
@@ -800,41 +806,93 @@ function regenerateCards(guide) {
 // first generated. Reuses each card's original jitter/rotJitter so this
 // doesn't look like re-randomized noise every frame. Manually-subdivided
 // cards (Manual Edit mode) are left alone; they're independently deformed.
+const _rp = {
+  pos: new THREE.Vector3(), tangent: new THREE.Vector3(), outward: new THREE.Vector3(),
+  right: new THREE.Vector3(), normal: new THREE.Vector3(), v: new THREE.Vector3(),
+  basis: new THREE.Matrix4(), normalMatrix: new THREE.Matrix3(), manualQuat: new THREE.Quaternion(),
+};
 function repositionAutoCards(guide) {
   if (guide.points.length < 2 || guide.cardsGroup.children.length === 0) return;
 
   const curve = new THREE.CatmullRomCurve3(getScaledPoints(guide));
   const n = guide.cardsGroup.children.length;
+  const { pos, tangent, outward, right, normal, basis, manualQuat } = _rp;
 
   guide.cardsGroup.children.forEach((card) => {
     if (card.userData.segments > 1) return; // manually subdivided — skip
     const i = card.userData.sampleIndex;
     const t = Math.min(0.999, Math.max(0.001, i / n));
-    const pos = curve.getPointAt(Math.min(1, i / Math.max(1, n - 1)));
-    const tangent = curve.getTangent(t).normalize();
-    const outward = pos.clone().sub(headCenter).normalize();
-    const right = new THREE.Vector3().crossVectors(tangent, outward).normalize();
-    const normal = new THREE.Vector3().crossVectors(right, tangent).normalize();
-    const basis = new THREE.Matrix4().makeBasis(right, tangent, normal);
+    curve.getPointAt(Math.min(1, i / Math.max(1, n - 1)), pos);
+    curve.getTangent(t, tangent).normalize();
+    outward.copy(pos).sub(headCenter).normalize();
+    right.crossVectors(tangent, outward).normalize();
+    normal.crossVectors(right, tangent).normalize();
+    basis.makeBasis(right, tangent, normal);
 
-    // Rebuild geometry with the new basis (cheap: it's a tiny plane), then
-    // reapply the SAME jitter/rotation the card was created with.
-    const geo = makeTwoSidedPlaneGeometry(card.userData.width, card.userData.height);
-    if (card.userData.region) remapUVs(geo, card.userData.region);
-    geo.applyMatrix4(basis);
-    card.geometry.dispose();
-    card.geometry = geo;
-    card.userData.basisMatrix = basis;
-    addCardOutline(card);
+    // Re-place the plane with the new basis, then reapply the SAME jitter/rotation the card was created with.
+    if (card.geometry.getAttribute('position').count === 8) {
+      writeTwoSidedPlanePositions(card, basis);
+    } else {
+      const geo = makeTwoSidedPlaneGeometry(card.userData.width, card.userData.height);
+      if (card.userData.region) remapUVs(geo, card.userData.region);
+      geo.applyMatrix4(basis);
+      card.geometry.dispose();
+      card.geometry = geo;
+      addCardOutline(card);
+    }
+    card.userData.basisMatrix.copy(basis);
 
     // Manual Edit rotations are applied on top of the jitter rotation, so carry that remainder over.
-    const manualQuat = card.userData.jitterQuat ? card.userData.jitterQuat.clone().invert().multiply(card.quaternion) : new THREE.Quaternion();
+    if (card.userData.jitterQuat) manualQuat.copy(card.userData.jitterQuat).invert().multiply(card.quaternion);
+    else manualQuat.identity();
     card.position.copy(pos).addScaledVector(right, card.userData.jitter);
     card.rotation.set(0, 0, 0);
     card.rotateOnAxis(tangent, card.userData.rotJitter);
-    card.userData.jitterQuat = card.quaternion.clone();
+    if (card.userData.jitterQuat) card.userData.jitterQuat.copy(card.quaternion);
+    else card.userData.jitterQuat = card.quaternion.clone();
     card.quaternion.multiply(manualQuat);
   });
+}
+
+// In-place equivalent of makeTwoSidedPlaneGeometry(w, h) + applyMatrix4(basis) for an unsubdivided card (and its outline),
+// so live simulation doesn't allocate a geometry per card per frame. UVs and index are unchanged.
+function writeTwoSidedPlanePositions(card, basis) {
+  const geo = card.geometry;
+  const posAttr = geo.getAttribute('position');
+  const normAttr = geo.getAttribute('normal');
+  const halfW = card.userData.width / 2, halfH = card.userData.height / 2;
+  const v = _rp.v;
+  const nm = _rp.normalMatrix.getNormalMatrix(basis);
+  for (let i = 0; i < 8; i++) {
+    // PlaneGeometry(w, h, 1, 1) vertex order: top-left, top-right, bottom-left, bottom-right; the back copy repeats it
+    v.set(Math.fround(i & 1 ? halfW : -halfW), Math.fround(i & 2 ? -halfH : halfH), 0).applyMatrix4(basis);
+    posAttr.setXYZ(i, v.x, v.y, v.z);
+    v.set(0, 0, i < 4 ? 1 : -1).applyNormalMatrix(nm);
+    normAttr.setXYZ(i, v.x, v.y, v.z);
+  }
+  posAttr.needsUpdate = true;
+  normAttr.needsUpdate = true;
+  if (geo.boundingBox) geo.computeBoundingBox();
+  geo.computeBoundingSphere();
+
+  let outline = card.userData.outline;
+  if (!outline || !outline.userData.srcIndex) {
+    addCardOutline(card); // once: rebuilt from the fresh positions, so every line point matches a vertex exactly
+    outline = card.userData.outline;
+    const linePos = outline.geometry.getAttribute('position');
+    // WireframeGeometry copies vertex positions per edge; remember which vertex each line point came from
+    outline.userData.srcIndex = [];
+    for (let j = 0; j < linePos.count; j++) {
+      let k = 0;
+      while (k < posAttr.count - 1 && (posAttr.getX(k) !== linePos.getX(j) || posAttr.getY(k) !== linePos.getY(j) || posAttr.getZ(k) !== linePos.getZ(j))) k++;
+      outline.userData.srcIndex.push(k);
+    }
+    return;
+  }
+  const linePos = outline.geometry.getAttribute('position');
+  outline.userData.srcIndex.forEach((k, j) => linePos.setXYZ(j, posAttr.getX(k), posAttr.getY(k), posAttr.getZ(k)));
+  linePos.needsUpdate = true;
+  outline.geometry.computeBoundingSphere();
 }
 
 // Real two-sided geometry: duplicates every triangle with reversed winding
@@ -994,6 +1052,7 @@ function updateBudgetDashboard() {
     budgetStatusEl.textContent = `Over budget (${totalCards} / ${target})`;
     budgetStatusEl.classList.add('over');
   }
+  updateHairSummary(); // same counts; keeps the Hair tab current after load, regenerate, delete and undo
 }
 
 budgetTargetSlider.addEventListener('input', () => {
@@ -1132,6 +1191,29 @@ on('region-deleted', (index) => {
       g.atlasRegionIndex = -1;
       if (g.cardsGroup.children.length > 0) regenerateCards(g);
     }
+  });
+  if (selectedGuide) atlasSliceSelect.value = selectedGuide.atlasRegionIndex;
+  updateBudgetDashboard();
+});
+on('regions-cleared', () => {
+  guides.forEach((g) => {
+    if (g.atlasRegionIndex === -1) return;
+    g.atlasRegionIndex = -1;
+    if (g.cardsGroup.children.length > 0) regenerateCards(g);
+  });
+  if (selectedGuide) atlasSliceSelect.value = '-1';
+  updateBudgetDashboard();
+});
+on('region-undo-snapshot', (snap) => {
+  snap.guideRegions = new Map(guides.map((g) => [g, g.atlasRegionIndex]));
+});
+on('region-undo-restore', (guideRegions) => {
+  guideRegions.forEach((index, g) => {
+    if (!guides.includes(g) || g.atlasRegionIndex === index) return;
+    g.atlasRegionIndex = index;
+    const card = g.cardsGroup.children[0];
+    // only rebuild when the rectangle actually changed — a plain index shift keeps the cards (and any manual edits)
+    if (card && JSON.stringify(card.userData.region) !== JSON.stringify(store.regions[index] || null)) regenerateCards(g);
   });
   if (selectedGuide) atlasSliceSelect.value = selectedGuide.atlasRegionIndex;
   updateBudgetDashboard();
@@ -1694,7 +1776,6 @@ document.getElementById('btn-apply-global-hair').addEventListener('click', () =>
 
   if (selectedGuide) selectGuide(selectedGuide); // resync sliders in the Selected Guide panel
   updateBudgetDashboard();
-  updateHairSummary();
 });
 
 // --- Render tab: background, lighting, tone mapping, bloom, stats ---
@@ -2526,12 +2607,26 @@ window.addEventListener('keydown', (evt) => {
     : 'Live simulation OFF — press Space to resume.';
 });
 
+const _phys = { a: new THREE.Vector3(), b: new THREE.Vector3(), geometry: null, skipRadius: 0 };
+// Upper bound on headSurfaceRadiusAt: the head mesh sits at headCenter unrotated and unscaled, so no hit is farther than its farthest vertex.
+function headCollisionSkipRadius() {
+  if (_phys.geometry !== headMesh.geometry) {
+    const posAttr = headMesh.geometry.getAttribute('position');
+    let maxSq = 0;
+    for (let i = 0; i < posAttr.count; i++) maxSq = Math.max(maxSq, _phys.a.fromBufferAttribute(posAttr, i).lengthSq());
+    _phys.geometry = headMesh.geometry;
+    _phys.skipRadius = Math.max(Math.sqrt(maxSq), HEAD_RADIUS) * 1.0001;
+  }
+  return _phys.skipRadius;
+}
+
 function stepPhysics(dt) {
   const gravity = Number(gravityInput.value);
   const damping = Number(dampingInput.value);
   const stiffness = Number(stiffnessInput.value);
 
   if (physicsEnabled.checked) {
+  const skipRadius = headCollisionSkipRadius();
   guides.forEach((guide) => {
     const pts = guide.points;
     if (pts.length < 2) return;
@@ -2544,13 +2639,11 @@ function stepPhysics(dt) {
     // Verlet integration (skip index 0: pinned root at the scalp).
     for (let i = 1; i < pts.length; i++) {
       if (isBeingDragged && i === dragTarget.pointIndex) continue; // pinned to cursor
-      const current = pts[i].clone();
       const prev = guide.prevPoints[i];
-      const velocity = current.clone().sub(prev).multiplyScalar(damping);
-      const next = current.clone().add(velocity);
-      next.y -= gravity * dt * dt;
-      guide.prevPoints[i] = current;
-      pts[i].copy(next);
+      const velocity = _phys.a.subVectors(pts[i], prev).multiplyScalar(damping);
+      prev.copy(pts[i]);
+      pts[i].add(velocity);
+      pts[i].y -= gravity * dt * dt;
     }
 
     // Distance constraints to stop the strand stretching into a mess.
@@ -2560,7 +2653,7 @@ function stepPhysics(dt) {
         const a = pts[i - 1];
         const b = pts[i];
         const restLen = guide.restLengths[i - 1] || 0.05;
-        const diff = b.clone().sub(a);
+        const diff = _phys.a.subVectors(b, a);
         const dist = diff.length() || 0.0001;
         const correction = diff.multiplyScalar(((dist - restLen) / dist) * stiffness * 0.5);
         if (i - 1 !== 0) a.add(correction);
@@ -2570,11 +2663,12 @@ function stepPhysics(dt) {
 
     // Head collision: push points back outside the scalp ellipsoid.
     for (let i = 1; i < pts.length; i++) {
-      const dir = pts[i].clone().sub(headCenter);
+      const dir = _phys.a.subVectors(pts[i], headCenter);
       const dist = dir.length();
-      const surf = headSurfaceRadiusAt(dir.clone().normalize());
+      if (dist > skipRadius) continue; // beyond every head vertex, so the surface can't be farther out — no raycast needed
+      const surf = headSurfaceRadiusAt(_phys.b.copy(dir).normalize());
       if (dist < surf) {
-        pts[i].copy(headCenter.clone().addScaledVector(dir.normalize(), surf));
+        pts[i].copy(headCenter).addScaledVector(dir.normalize(), surf);
       }
     }
 
@@ -2703,7 +2797,7 @@ function gatherMeshQuadData() {
 // which many DCC/engine importers do accept — but unlike glTF/OBJ, I have
 // no way to validate it against real target software, so treat this as a
 // best-effort option, not a guaranteed-solid one.
-function buildFBXAscii({ positions, uvs, quads }) {
+function buildFBXAscii({ positions, uvs, quads }, textureFileName) {
   const posStr = positions.map((n) => n.toFixed(6)).join(',');
   const uvStr = uvs.map((n) => n.toFixed(6)).join(',');
 
@@ -2720,6 +2814,31 @@ function buildFBXAscii({ positions, uvs, quads }) {
     const n = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a)).normalize();
     for (let k = 0; k < 4; k++) normals.push(n.x, n.y, n.z);
   });
+
+  const textureDefs = textureFileName ? `
+\tObjectType: "Texture" {
+\t\tCount: 1
+\t}
+\tObjectType: "Video" {
+\t\tCount: 1
+\t}` : '';
+  const textureObjects = textureFileName ? `
+\tVideo: 5000000000, "Video::hair_albedo", "Clip" {
+\t\tType: "Clip"
+\t\tFileName: "${textureFileName}"
+\t\tRelativeFilename: "${textureFileName}"
+\t}
+\tTexture: 4000000000, "Texture::hair_albedo", "" {
+\t\tType: "TextureVideoClip"
+\t\tVersion: 202
+\t\tTextureName: "Texture::hair_albedo"
+\t\tMedia: "Video::hair_albedo"
+\t\tFileName: "${textureFileName}"
+\t\tRelativeFilename: "${textureFileName}"
+\t}` : '';
+  const textureConnections = textureFileName ? `
+\tC: "OO",5000000000,4000000000
+\tC: "OP",4000000000,3000000000,"DiffuseColor"` : '';
 
   return `; FBX 7.4.0 project file
 ; GeoStrands export — legacy ASCII FBX (best-effort; see Export tab note)
@@ -2743,7 +2862,7 @@ GlobalSettings:  {
 }
 Definitions:  {
 \tVersion: 100
-\tCount: 3
+\tCount: ${textureFileName ? 5 : 3}
 \tObjectType: "Geometry" {
 \t\tCount: 1
 \t}
@@ -2752,7 +2871,7 @@ Definitions:  {
 \t}
 \tObjectType: "Material" {
 \t\tCount: 1
-\t}
+\t}${textureDefs}
 }
 Objects:  {
 \tGeometry: 1000000000, "Geometry::hair_cards", "Mesh" {
@@ -2824,12 +2943,12 @@ Objects:  {
 \t\tProperties70:  {
 \t\t\tP: "DiffuseColor", "Color", "", "A",1,1,1
 \t\t}
-\t}
+\t}${textureObjects}
 }
 Connections:  {
 \tC: "OO",2000000000,0
 \tC: "OO",1000000000,2000000000
-\tC: "OO",3000000000,2000000000
+\tC: "OO",3000000000,2000000000${textureConnections}
 }
 `;
 }
@@ -3103,9 +3222,15 @@ document.getElementById('btn-export-fbx').addEventListener('click', async () => 
     alert('Nothing to export yet — generate some cards first.');
     return;
   }
-  const fbxText = buildFBXAscii(meshData);
+  const fbxText = buildFBXAscii(meshData, store.atlasImage ? 'hair-cards_fbx_albedo.png' : null);
   const savedPath = await window.hcsAPI.exportText('Export FBX (ASCII)', 'hair-cards.fbx', 'FBX (ASCII)', ['fbx'], fbxText);
-  if (savedPath) hintEl.textContent = `Exported: ${savedPath} (experimental ASCII FBX)`;
+  if (!savedPath) return;
+  if (store.atlasImage) {
+    const dir = savedPath.substring(0, savedPath.lastIndexOf(savedPath.includes('\\') ? '\\' : '/') + 1);
+    const files = [{ filename: 'hair-cards_fbx_albedo.png', dataURL: `data:image/png;base64,${getCompositeTextureBase64()}` }];
+    await window.hcsAPI.writeExportFiles(dir, files);
+  }
+  hintEl.textContent = `Exported: ${savedPath} (experimental ASCII FBX)`;
 });
 
 document.getElementById('btn-export-usd').addEventListener('click', async () => {

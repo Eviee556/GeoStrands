@@ -8,9 +8,14 @@
   "scripts": {
     "start": "npx --yes http-server src -p 8080 -c-1 -o",
     "build": "node scripts/build.mjs",
-    "package": "npm run build && node scripts/package.mjs"
+    "package": "npm run build && node scripts/package.mjs",
+    "test": "node tests/e2e.mjs"
   },
   "devDependencies": {
-    "esbuild": "^0.24.0"
+    "esbuild": "^0.24.0",
+    "gltf-validator": "2.0.0-dev.3.10",
+    "playwright-core": "1.65.1",
+    "pngjs": "7.0.0",
+    "three": "0.160.0"
   }
 }

@@ -2,6 +2,7 @@
 // that runs offline by double-clicking it, no server or install needed.
 import { build } from 'esbuild';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 const src = (p) => new URL(`../src/${p}`, import.meta.url);
 const read = (p) => readFileSync(src(p), 'utf8');
@@ -17,6 +18,8 @@ const { outputFiles } = await build({
   minify: true,
   write: false,
   legalComments: 'none',
+  // three-mesh-bvh imports bare 'three'; point it at the same vendored copy app.js uses.
+  alias: { three: fileURLToPath(src('vendor/three.module.js')) },
   // The head mesh is fetched at runtime; inline it so file:// works.
   plugins: [{
     name: 'inline-head-obj',
@@ -35,6 +38,7 @@ const html = read('index.html')
   .replace('<link rel="stylesheet" href="style.css" />', () => `<style>${read('style.css')}</style>`)
   .replace('href="assets/app-icon.png"', () => `href="${dataURL('assets/app-icon.png', 'image/png')}"`)
   .replace('<script src="platform-web.js"></script>', () => `<script>${read('platform-web.js')}</script>`)
+  .replace(/\s*<script type="importmap">.*?<\/script>/, '')
   .replace(/\s*<script type="module" src="[^"]+"><\/script>/g, '')
   .replace('</body>', () => `<script type="module">${js}</script>\n</body>`);
 

@@ -83,7 +83,7 @@ npm run package    # → dist/GeoStrands-v<version>-win.zip (Windows, adds the l
 
 ## Tech stack
 
-- **JavaScript (ES modules)**, no framework, with **Three.js r160** for WebGL rendering, SSAO, bloom, OBJ loading and glTF export
+- **JavaScript (ES modules)**, no framework, with **Three.js r160** for WebGL rendering, SSAO, bloom, OBJ loading and glTF export, and **three-mesh-bvh** for fast head raycasts
 - Custom writers for OBJ/MTL, ASCII FBX and USDA (mesh and curves)
 - Verlet physics with raycast head collision
 - **esbuild** bundles the app into one offline HTML file
@@ -91,7 +91,7 @@ npm run package    # → dist/GeoStrands-v<version>-win.zip (Windows, adds the l
 
 ```
 src/            application source (app.js, atlas.js, texture-gen.js, …)
-src/vendor/     three.js and add-ons (unmodified)
+src/vendor/     three.js, add-ons and three-mesh-bvh (unmodified)
 scripts/        build and packaging
 launcher/       Windows launcher source
 examples/       sample project
@@ -108,7 +108,7 @@ docs/           documentation and screenshots
 
 **Created by [Charlize Pauli](https://github.com/Eviee556).** Design, development and documentation.
 
-Built with [three.js](https://threejs.org/) (MIT).
+Built with [three.js](https://threejs.org/) and [three-mesh-bvh](https://github.com/gkjohnson/three-mesh-bvh) (MIT).
 
 ## License
 

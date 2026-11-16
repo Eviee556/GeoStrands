@@ -11,7 +11,7 @@ function getMapSourceCanvas() {
   const canvas = document.createElement('canvas');
   canvas.width = store.atlasImage.width;
   canvas.height = store.atlasImage.height;
-  canvas.getContext('2d').drawImage(store.atlasImage, 0, 0);
+  canvas.getContext('2d', { willReadFrequently: true }).drawImage(store.atlasImage, 0, 0);
   return canvas;
 }
 

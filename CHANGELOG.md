@@ -2,6 +2,26 @@
 
 All notable changes to GeoStrands are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.1.3] - 2026-11-16
+
+### Added
+
+- Automated end-to-end test (`npm test`), run on every push by GitHub Actions. It opens the sample project in a headless browser, exports every format and validates each file: glTF with the Khronos validator, OBJ and FBX with three.js loaders, plus USD structure and non-blank texture maps.
+- FBX exports now carry the albedo texture (`hair-cards_fbx_albedo.png`, written next to the `.fbx`).
+
+### Changed
+
+- Faster physics: cards update their geometry in place instead of being rebuilt every frame, and the simulation loop no longer allocates per point.
+- Head raycasts (physics collision, Place, Comb, Drag) use a bounding volume hierarchy from three-mesh-bvh. On the sample project a physics step drops from about 330 ms to 5 ms, with identical results.
+
+### Fixed
+
+- Undoing an atlas region delete restores the guides that used it. **Clear All** regions now resets guides to "none" and can be undone.
+- The Hair tab's card count updates after opening a project, regenerating, deleting or undoing.
+- The ink and textured brush styles are deterministic: the live preview matches the committed stroke, and the same stroke always paints the same pixels.
+- Cancelling a pen stroke with Esc also removes its lines from the flow map.
+- Removed a browser performance warning about repeated canvas readback.
+
 ## [0.1.2] - 2026-11-16
 
 ### Fixed
@@ -46,6 +66,7 @@ All notable changes to GeoStrands are listed here. The format follows [Keep a Ch
 - A Windows launcher.
 - Documentation: tutorials, examples, technical reference and a making-of write-up.
 
+[0.1.3]: https://github.com/Eviee556/GeoStrands/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/Eviee556/GeoStrands/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/Eviee556/GeoStrands/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Eviee556/GeoStrands/releases/tag/v0.1.0

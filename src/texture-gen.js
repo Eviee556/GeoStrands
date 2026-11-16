@@ -10,7 +10,7 @@ const vctx = visible.getContext('2d');
 const paint = document.createElement('canvas');
 paint.width = visible.width;
 paint.height = visible.height;
-const pctx = paint.getContext('2d');
+const pctx = paint.getContext('2d', { willReadFrequently: true });
 
 let currentBrush = 'paint';
 let isDrawing = false;
@@ -174,7 +174,7 @@ export function undoPaint() {
 const flowCanvas = document.createElement('canvas');
 flowCanvas.width = paint.width;
 flowCanvas.height = paint.height;
-const fctx = flowCanvas.getContext('2d');
+const fctx = flowCanvas.getContext('2d', { willReadFrequently: true });
 fctx.fillStyle = 'rgb(128,128,128)';
 fctx.fillRect(0, 0, flowCanvas.width, flowCanvas.height);
 
@@ -438,17 +438,17 @@ function drawBrushDab(ctx, x, y, radius, colorHex, baseOpacity) {
   } else if (mode === 'marker') {
     fillCircle(radius, baseOpacity * 0.65);
   } else if (mode === 'ink') {
-    fillCircle(radius, baseOpacity, 1 + (Math.random() - 0.5) * 0.08);
+    fillCircle(radius, baseOpacity, 1 + (brushRand() - 0.5) * 0.08);
   } else if (mode === 'textured') {
     fillCircle(radius, baseOpacity);
     ctx.save();
     ctx.globalCompositeOperation = 'destination-out';
     for (let s = 0; s < 5; s++) {
-      const ang = Math.random() * Math.PI * 2;
-      const dist = Math.random() * radius * 0.8;
-      ctx.globalAlpha = 0.15 + Math.random() * 0.25;
+      const ang = brushRand() * Math.PI * 2;
+      const dist = brushRand() * radius * 0.8;
+      ctx.globalAlpha = 0.15 + brushRand() * 0.25;
       ctx.beginPath();
-      ctx.arc(x + Math.cos(ang) * dist, y + Math.sin(ang) * dist, radius * 0.12 * Math.random(), 0, Math.PI * 2);
+      ctx.arc(x + Math.cos(ang) * dist, y + Math.sin(ang) * dist, radius * 0.12 * brushRand(), 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.restore();
@@ -492,6 +492,7 @@ function pathCumulativeLengths(points) {
 // tapered profiles fall back to the dab approximation (no true caps there).
 function drawTaperedStroke(ctx, points, baseRadius, colorHex, opacity, isPenStroke, erase) {
   if (points.length === 0) return;
+  brushRand = mulberry32(strokeSeed); // every redraw of one stroke (preview, commit, pen re-commit) gets the same jitter
   const { profile, taperFrac } = currentWidthProfile();
 
   if (isPenStroke && profile === 'uniform' && points.length > 1 && !erase) {
@@ -532,6 +533,11 @@ function drawTaperedStroke(ctx, points, baseRadius, colorHex, opacity, isPenStro
 let currentStrokePoints = []; // recorded live-drag path for the Paint Brush, before it's committed
 let penPath = []; // points already placed for the strand currently being drawn
 let penStrokeBaseImageData = null; // paint-layer snapshot from just before this pen stroke began
+let penStrokeBaseFlow = null;      // flow-buffer snapshot from the same moment, so Esc undoes the pen's flow lines too
+let strokeSeed = 0;
+// Seeded from the start point so repainting the same stroke reproduces it exactly.
+const seedForStroke = (p) => MODIFIER_SEED ^ Math.imul(Math.round(p.x * 16), 73856093) ^ Math.imul(Math.round(p.y * 16), 19349663);
+let brushRand = Math.random; // reseeded per stroke in drawTaperedStroke
 
 visible.addEventListener('mousedown', (evt) => {
   const p = canvasPos(evt);
@@ -540,6 +546,8 @@ visible.addEventListener('mousedown', (evt) => {
     if (penPath.length === 0) {
       pushPaintUndo();
       penStrokeBaseImageData = pctx.getImageData(0, 0, paint.width, paint.height);
+      penStrokeBaseFlow = fctx.getImageData(0, 0, flowCanvas.width, flowCanvas.height);
+      strokeSeed = seedForStroke(p);
     }
     penPath.push(p);
 
@@ -568,6 +576,7 @@ visible.addEventListener('mousedown', (evt) => {
   dragStart = p;
   if (currentBrush === 'paint' || currentBrush === 'eraser') {
     pushPaintUndo();
+    strokeSeed = seedForStroke(p);
     lastPaintPos = p;
     lazyAnchor = lazyCheckbox.checked ? { x: p.x, y: p.y } : null;
     currentStrokePoints = [p];
@@ -584,13 +593,16 @@ function finishPenStroke() {
   // finishing just ends the strand so the next click starts a fresh one.
   penPath = [];
   penStrokeBaseImageData = null;
+  penStrokeBaseFlow = null;
   renderOutput();
 }
 
 function cancelPenStroke() {
   if (penStrokeBaseImageData) pctx.putImageData(penStrokeBaseImageData, 0, 0);
+  if (penStrokeBaseFlow) fctx.putImageData(penStrokeBaseFlow, 0, 0);
   penPath = [];
   penStrokeBaseImageData = null;
+  penStrokeBaseFlow = null;
   renderOutput();
 }
 
@@ -1052,7 +1064,7 @@ function applyPixelModifiers(ctx, w, h) {
 const compositeCanvas = document.createElement('canvas');
 compositeCanvas.width = paint.width;
 compositeCanvas.height = paint.height;
-const cctx = compositeCanvas.getContext('2d');
+const cctx = compositeCanvas.getContext('2d', { willReadFrequently: true });
 
 function computeComposite() {
   const w = compositeCanvas.width, h = compositeCanvas.height;

@@ -259,7 +259,9 @@ This runs every frame from `animate`. `dt` is capped at 0.033 s. The simulation 
    next.y  -= gravity · dt²                     // gravity slider 0 to 2, default 0.6
    ```
 2. **Distance constraints**: 3 Gauss-Seidel passes over the segments. Each segment is pulled toward `restLengths[i−1]` (falling back to 0.05) with a correction of `diff · ((dist − rest) / dist) · stiffness · 0.5` on each end. The root and the dragged point are not moved. Stiffness goes from 0.1 to 1 (default 0.85).
-3. **Head collision**: for each non-root point, `headSurfaceRadiusAt(dir)` casts a ray from `headCenter` along the point's direction and returns the distance to the first hit on `headMesh` (or `HEAD_RADIUS` = 0.5 if nothing is hit). A point closer than that is pushed out onto the surface. This is why the head material is `DoubleSide`: the ray starts inside the mesh. It works for any head that is star-shaped around its center, either the ellipsoid fallback or an imported OBJ.
+3. **Head collision**: for each non-root point, `headSurfaceRadiusAt(dir)` casts a ray from `headCenter` along the point's direction and returns the distance to the first hit on `headMesh` (or `HEAD_RADIUS` = 0.5 if nothing is hit). A point closer than that is pushed out onto the surface. This is why the head material is `DoubleSide`: the ray starts inside the mesh. It works for any head that is star-shaped around its center, either the ellipsoid fallback or an imported OBJ. `headCollisionSkipRadius()` skips the ray for points farther out than every head vertex.
+
+   Head raycasts go through a bounding volume hierarchy from [three-mesh-bvh](https://github.com/gkjohnson/three-mesh-bvh) 0.7.8 (MIT, vendored unmodified in `src/vendor/three-mesh-bvh/` with its LICENSE). `headMesh.raycast` is `acceleratedRaycast`, and `computeBoundsTree()` runs on the ellipsoid fallback and in `applyHeadObjGroup` (default head and Import Head (OBJ)), so Place, Comb, Drag and collision rays all use it. It returns the same hits as the brute-force raycast: the same first hit distance, point and normal. The BVH reorders the head geometry's index buffer, so `faceIndex` values differ, but nothing in the app reads them.
 4. Then `syncPointMeshes`, `refreshGuideLine` and `repositionAutoCards`.
 
 **Rest lengths** come from `computeRestLengths`, which runs after authoring moves (place, comb, modifiers, load) and never inside the physics step, so the constraints always pull back toward the authored shape. When the point count changes, the lengths are recomputed.
@@ -411,7 +413,7 @@ Not covered: Manual Edit card and vertex edits, G/S/R transforms (which have the
 
 It runs after card rebuilds, deletions, undo and load, and on `regions-changed` and `atlas-image-changed`. The Hair tab summary (`updateHairSummary`) and the stats overlay count the same way.
 
-Per-frame costs to be aware of: while physics is on, every guide point does one raycast against the head mesh each frame, and every card on every moving guide gets a new `BufferGeometry` (`repositionAutoCards`).
+Per-frame costs to be aware of: while physics is on, every guide point does one raycast against the head mesh each frame, and every card on every moving guide is repositioned (`repositionAutoCards`). On the sample project (182 cards, 48,004-triangle head, headless Chrome with software WebGL) the BVH cut one head raycast from 3.75 ms to 0.017 ms, a physics step from 333 ms to 5.1 ms and the frame time with live simulation on from 204 ms to 47 ms. Repositioning all cards costs about 2 ms per step.
 
 ---
 
@@ -420,7 +422,7 @@ Per-frame costs to be aware of: while physics is on, every guide point does one 
 - **Development**: `npm start` serves `src/` with `http-server` (cache off). ES modules do not load over `file://`, so a server is needed.
 - **Build**: `npm run build` runs esbuild with a stdin entry that imports `texture-gen.js`, `bake-colors.js`, `export-panel.js` and `app.js`, in that order. Output is bundled, minified ESM with no legal comments, kept in memory (`write: false`).
 - **Inline head mesh**: a small esbuild plugin (`inline-head-obj`) replaces the string literal `'./assets/head_placeholder.obj'` in `app.js` with a `data:text/plain;base64,…` URL, so `OBJLoader` can fetch it with no server.
-- **HTML assembly**: `index.html` gets the stylesheet inlined as `<style>`, the app icon as a data URL and `platform-web.js` as an inline classic script. The external module tags are removed, and the bundle goes into one `<script type="module">` before `</body>`. The script aborts if a `src="app.js"` tag is still there.
+- **HTML assembly**: `index.html` gets the stylesheet inlined as `<style>`, the app icon as a data URL and `platform-web.js` as an inline classic script. The import map and the external module tags are removed (esbuild aliases the bare `three` import that three-mesh-bvh uses to `src/vendor/three.module.js`, so the bundle holds one copy of three.js), and the bundle goes into one `<script type="module">` before `</body>`. The script aborts if a `src="app.js"` tag is still there.
 - **Output**: `dist/GeoStrands.html` (about 5 MB), which opens by double-click and runs fully offline.
 - **CI**: `.github/workflows/pages.yml` builds on every push to `main` and publishes the file as `index.html` on GitHub Pages.
 
@@ -441,7 +443,7 @@ Limitations visible in the current code:
 - **Atlas region indices**: undoing a region delete restores the region but not the guide links that the delete reset to `-1`. Clear All does not reset guide indices, so guides keep pointing at indices that no longer exist.
 - **Guides with no region** map the whole atlas image when one is loaded, and Flip V does not affect them.
 - **Browser limits**: folder exports become individual downloads, there is one autosave slot in `localStorage`, and "recent files" is not available.
-- **Physics** has no guide-to-guide collision, no wind and no per-guide stiffness, and the collision raycast cost grows with point count.
+- **Physics** has no guide-to-guide collision, no wind and and no per-guide stiffness. Collision still casts one ray per guide point per step. The BVH makes each ray cheap, but the cost still grows with point count.
 
 Next steps, in priority order:
 
@@ -449,5 +451,5 @@ Next steps, in priority order:
 2. Saving Manual Edit changes in the project file and covering them in undo, and keeping guide region links intact through region undo and Clear All.
 3. An optional alpha-to-coverage or sorted path for cinematics.
 4. A proper PSD decoder and multi-atlas support.
-5. Collision against an acceleration structure or an SDF instead of per-point raycasts.
+5. Collision against an SDF instead of per-point raycasts.
 6. Checking the FBX output in Autodesk tools and Blender and adding a texture node, testing USD in target DCC tools and engines, and LOD card reduction for game budgets.
