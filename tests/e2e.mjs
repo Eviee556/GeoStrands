@@ -38,7 +38,14 @@ const browser = await chromium.launch({ executablePath, headless: true, args: ['
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
 const pageErrors = [];
 page.on('pageerror', (e) => pageErrors.push('pageerror: ' + e.message));
-page.on('console', (m) => { if (m.type() === 'error') pageErrors.push('console: ' + m.text()); });
+const consoleLog = []; // recent console lines, printed when an export produces nothing
+page.on('console', (m) => { consoleLog.push(`${m.type()}: ${m.text()}`.slice(0, 200)); if (m.type() === 'error') pageErrors.push('console: ' + m.text()); });
+// Count anchor-download clicks inside the page, to tell "app never downloaded" from "browser dropped it".
+await page.addInitScript(() => {
+  window.__downloadClicks = [];
+  const click = HTMLAnchorElement.prototype.click;
+  HTMLAnchorElement.prototype.click = function () { if (this.download) window.__downloadClicks.push(this.download); return click.call(this); };
+});
 const dialogs = []; // app alert() text, reported if an export produces nothing
 page.on('dialog', (d) => { dialogs.push(d.message()); d.accept(); });
 
@@ -53,7 +60,12 @@ async function exportVia(id, count) {
   const deadline = Date.now() + 180_000; // software-rendered CI runners are several times slower than a desktop
   while (pending.length < count && Date.now() < deadline) await page.waitForTimeout(100);
   await Promise.all(pending);
-  if (pending.length < count) throw new Error(`expected ${count} download(s), got ${pending.length}${dialogs.length ? `; app alerts: ${dialogs.join(' | ')}` : ''}`);
+  if (pending.length < count) {
+    const clicks = await page.evaluate(() => window.__downloadClicks.slice(-count));
+    const status = await page.textContent('#export-status').catch(() => '');
+    console.error(`[${id}] download clicks: ${JSON.stringify(clicks)} | status: ${status}\n  console:\n    ${consoleLog.slice(-8).join('\n    ')}`);
+    throw new Error(`expected ${count} download(s), got ${pending.length}${dialogs.length ? `; app alerts: ${dialogs.join(' | ')}` : ''}`);
+  }
 }
 
 await group('app loads', async () => {
