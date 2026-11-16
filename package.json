@@ -1,0 +1,16 @@
+{
+  "name": "geostrands",
+  "version": "0.1.0",
+  "description": "Hair card authoring tool for real-time and cinematic hair: guide curves, density-driven card generation, comb/drag physics, atlas editing and multi-format export.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Charlize Pauli",
+  "scripts": {
+    "start": "npx --yes http-server src -p 8080 -c-1 -o",
+    "build": "node scripts/build.mjs",
+    "package": "npm run build && node scripts/package.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0"
+  }
+}

@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>GeoStrands</title>
+<link rel="icon" type="image/png" href="assets/app-icon.png" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <div id="titlebar">
+    <div id="titlebar-brand">
+      <span class="thread-dot"></span>
+      <span>GeoStrands</span>
+    </div>
+    <div id="titlebar-tabs">
+      <button class="tab-btn active" data-tab="viewport" draggable="true">Viewport</button>
+      <button class="tab-btn" data-tab="texturegen" draggable="true">Texture Canva</button>
+      <button class="tab-btn" data-tab="atlas" draggable="true">Atlas Editor</button>
+      <button class="tab-btn" data-tab="hair" draggable="true">Hair</button>
+      <button class="tab-btn" data-tab="bakecolors" draggable="true">Bake &amp; Colors</button>
+      <button class="tab-btn" data-tab="render" draggable="true">Render</button>
+      <button class="tab-btn" data-tab="export" draggable="true">Export</button>
+    </div>
+    <div id="titlebar-actions">
+      <button id="btn-open-project" class="ghost-btn">Open</button>
+      <button id="btn-save-project" class="ghost-btn">Save</button>
+      <button id="btn-export-obj" class="primary-btn">Export OBJ</button>
+    </div>
+  </div>
+
+  <!-- ===================== VIEWPORT TAB ===================== -->
+  <div id="tab-viewport" class="tab-panel active">
+
+    <div id="viewport-toolbar">
+      <div class="tool-group">
+        <button class="mode-btn active" data-mode="place" title="Place guide points">
+          <span class="mode-icon">＋</span> Place
+        </button>
+        <button class="mode-btn" data-mode="comb" title="Comb existing guides">
+          <span class="mode-icon">〜</span> Comb
+        </button>
+        <button class="mode-btn" data-mode="drag" title="Drag with live physics">
+          <span class="mode-icon">↯</span> Drag Sim
+        </button>
+        <button class="mode-btn" data-mode="manual" title="Select and edit individual cards">
+          <span class="mode-icon">⛶</span> Manual Edit
+        </button>
+      </div>
+
+      <div class="tool-group">
+        <button id="btn-new-guide" class="ghost-btn small">New Guide</button>
+        <button id="btn-delete-guide" class="ghost-btn small">Delete Guide</button>
+        <label class="checkbox-label" title="Mirrors new guides, and Place/Comb/Drag edits, across the head's center line">
+          <input type="checkbox" id="symmetry-mode" /> Symmetry
+        </label>
+        <label class="checkbox-label" title="Hide guide lines and point-marker dots for a clean preview">
+          <input type="checkbox" id="show-topology" checked /> Show Guide Topology
+        </label>
+      </div>
+
+      <div class="tool-group brush-controls">
+        <label class="slider-label">
+          Brush radius <span id="brush-radius-val">0.10</span>
+          <input id="brush-radius" type="range" min="0.02" max="0.5" step="0.01" value="0.10" />
+        </label>
+      </div>
+    </div>
+
+    <div id="viewport-body">
+
+      <div id="left-panel" class="panel">
+        <div class="panel-header panel-header-row">
+          <span>Guides</span>
+          <button id="btn-add-layer" class="ghost-btn small">+ Add Layer</button>
+        </div>
+        <div id="guide-list" class="scroll-list"></div>
+        <div class="resize-handle-v" data-resize-target-v="guide-list"></div>
+
+        <div class="panel-header">Selected Guide</div>
+        <div id="guide-props" class="panel-section">
+          <label class="slider-label">
+            Length <span id="length-val">1.00</span>
+            <input id="length-slider" type="range" min="0.2" max="3" step="0.05" value="1" />
+          </label>
+          <label class="slider-label">
+            Card density <span id="density-val">6</span>
+            <input id="density-slider" type="range" min="1" max="60" step="1" value="6" />
+          </label>
+          <label class="slider-label">
+            Card width <span id="card-width-val">0.045</span>
+            <input id="card-width" type="range" min="0.01" max="0.15" step="0.005" value="0.045" />
+          </label>
+          <label class="slider-label">
+            Random spread <span id="spread-val">0.03</span>
+            <input id="spread" type="range" min="0" max="0.15" step="0.005" value="0.03" />
+          </label>
+          <label class="checkbox-label">
+            <input id="taper-toggle" type="checkbox" checked />
+            Taper card tips
+          </label>
+          <div class="panel-section-title">Atlas slice</div>
+          <select id="atlas-slice-select">
+            <option value="">— none (flat gray) —</option>
+          </select>
+          <button id="btn-regen-cards" class="primary-btn full-width">Regenerate Cards</button>
+        </div>
+
+        <div class="panel-header">Guide Shape Modifiers</div>
+        <div class="panel-section">
+          <p class="micro-note">These reshape the guide's actual curve — like FiberShop's strand modifiers — instead of texture pixels. Each applies to every currently-selected guide.</p>
+          <button id="btn-subdivide-guide" class="ghost-btn full-width">Subdivide Guide (2× points)</button>
+          <button id="btn-unsubdivide-guide" class="ghost-btn full-width">Unsubdivide Guide (½ points)</button>
+        </div>
+
+        <div class="modifier-section">
+          <div class="modifier-section-title">🌿 Scatter</div>
+          <p class="micro-note">Duplicates the selected guide into a scattered tuft near its root — the one modifier that adds new guides rather than reshaping existing ones.</p>
+          <label class="slider-label">Count <span id="mod-scatter-count-val">5</span>
+            <input id="mod-scatter-count" type="range" min="1" max="20" value="5" />
+          </label>
+          <label class="slider-label">Spread radius <span id="mod-scatter-radius-val">0.030</span>
+            <input id="mod-scatter-radius" type="range" min="0.005" max="0.15" step="0.005" value="0.03" />
+          </label>
+          <label class="slider-label">Shape randomness <span id="mod-scatter-random-val">0.30</span>
+            <input id="mod-scatter-random" type="range" min="0" max="1" step="0.05" value="0.3" />
+          </label>
+          <button id="btn-apply-scatter" class="primary-btn full-width">Apply Scatter</button>
+        </div>
+
+        <div class="modifier-section">
+          <div class="modifier-section-title">🌊 Bend</div>
+          <label class="slider-label">Angle <span id="mod-bend-val">0°</span>
+            <input id="mod-bend" type="range" min="-90" max="90" value="0" />
+          </label>
+          <label class="slider-label">Starts at <span id="mod-bend-start-val">0%</span>
+            <input id="mod-bend-start" type="range" min="0" max="80" value="0" />
+          </label>
+          <button id="btn-apply-bend" class="primary-btn full-width">Apply Bend</button>
+        </div>
+
+        <div class="modifier-section">
+          <div class="modifier-section-title">🌀 Curl</div>
+          <label class="slider-label">Amount <span id="mod-curl-amount-val">0.00</span>
+            <input id="mod-curl-amount" type="range" min="0" max="0.2" step="0.01" value="0" />
+          </label>
+          <label class="slider-label">Turns <span id="mod-curl-turns-val">1.0</span>
+            <input id="mod-curl-turns" type="range" min="0.5" max="5" step="0.5" value="1" />
+          </label>
+          <label class="slider-label">Starts at <span id="mod-curl-start-val">0%</span>
+            <input id="mod-curl-start" type="range" min="0" max="80" value="0" />
+          </label>
+          <button id="btn-apply-curl" class="primary-btn full-width">Apply Curl</button>
+        </div>
+
+        <div class="modifier-section">
+          <div class="modifier-section-title">⚡ Noise</div>
+          <label class="slider-label">Amount <span id="mod-guide-noise-val">0.000</span>
+            <input id="mod-guide-noise" type="range" min="0" max="0.05" step="0.005" value="0" />
+          </label>
+          <label class="slider-label">Frequency <span id="mod-noise-freq-val">3.0</span>
+            <input id="mod-noise-freq" type="range" min="0.5" max="10" step="0.5" value="3" />
+          </label>
+          <button id="btn-apply-noise" class="primary-btn full-width">Apply Noise</button>
+        </div>
+
+        <div class="modifier-section">
+          <div class="modifier-section-title">🧷 Clump</div>
+          <p class="micro-note">Pulls every selected guide toward their shared average path — select several guides first (Ctrl+click or click a layer).</p>
+          <label class="slider-label">Amount <span id="mod-clump-amount-val">0.00</span>
+            <input id="mod-clump-amount" type="range" min="0" max="1" step="0.05" value="0" />
+          </label>
+          <label class="slider-label">Tip bias <span id="mod-clump-tip-val">0.50</span>
+            <input id="mod-clump-tip" type="range" min="0" max="1" step="0.05" value="0.5" />
+          </label>
+          <button id="btn-apply-clump" class="primary-btn full-width">Apply Clump</button>
+        </div>
+
+        <div class="panel-header">Card Editing Mode</div>
+        <div class="panel-section">
+          <div class="segmented">
+            <button id="cardmode-auto-btn" class="segmented-btn active">Auto</button>
+            <button id="cardmode-manual-btn" class="segmented-btn">Manual</button>
+          </div>
+          <p class="micro-note">
+            Auto: the density slider above generates cards automatically.
+            Manual: switch to the "Manual Edit" toolbar mode to select and
+            hand-edit individual cards.
+          </p>
+        </div>
+
+        <div id="manual-card-panel" class="hidden">
+          <div class="panel-header">Manual Card Editor</div>
+          <div class="panel-section">
+            <div id="manual-no-selection" class="micro-note">Click a card in the viewport to select it.</div>
+
+            <div id="manual-selected-tools" class="hidden" style="display:flex; flex-direction:column; gap:12px;">
+              <div class="panel-section-title">Select</div>
+              <select id="manual-select-type">
+                <option value="vertex">Vertex</option>
+                <option value="edge">Edge</option>
+                <option value="face">Face</option>
+              </select>
+              <button id="btn-subdivide-card" class="ghost-btn small">Subdivide (+1 row)</button>
+              <button id="btn-delete-card" class="ghost-btn small" style="color: var(--danger); border-color: var(--danger);">Delete This Card</button>
+              <p class="micro-note">Removes only this one card — the guide and every other card on it are untouched.</p>
+
+              <div class="panel-section-title">Position (local)</div>
+              <div class="xyz-row">
+                <input id="card-pos-x" type="number" step="0.005" />
+                <input id="card-pos-y" type="number" step="0.005" />
+                <input id="card-pos-z" type="number" step="0.005" />
+              </div>
+              <div class="panel-section-title">Rotation (degrees)</div>
+              <div class="xyz-row">
+                <input id="card-rot-x" type="number" step="1" />
+                <input id="card-rot-y" type="number" step="1" />
+                <input id="card-rot-z" type="number" step="1" />
+              </div>
+
+              <label class="checkbox-label">
+                <input id="manual-gravity-enabled" type="checkbox" />
+                Enable card gravity (uses Physics sliders on the right)
+              </label>
+              <p class="micro-note">
+                Gravity here sags subdivided cards using the same
+                Gravity/Stiffness/Damping values as Drag Sim, but doesn't
+                collide with the head mesh yet.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="resize-handle" data-resize-target="left-panel" data-resize-side="left"></div>
+
+      <div id="viewport-canvas-wrap">
+        <canvas id="viewport-canvas"></canvas>
+        <div id="viewport-hint" class="hint-text"></div>
+        <pre id="render-stats-overlay" class="hidden"></pre>
+      </div>
+
+      <div class="resize-handle" data-resize-target="right-panel" data-resize-side="right"></div>
+
+      <div id="right-panel" class="panel">
+        <div class="panel-header">Head Model</div>
+        <div class="panel-section">
+          <button id="btn-import-head-model" class="ghost-btn full-width">Import Head (OBJ)</button>
+          <button id="btn-import-head-texture" class="ghost-btn full-width">Import Head Texture</button>
+          <p class="micro-note">Replaces the current head mesh/texture — guide points already placed stay where they are in space, but may no longer sit exactly on the new surface.</p>
+        </div>
+
+        <div class="panel-header">Physics (Drag Sim)</div>
+        <div class="panel-section">
+          <label class="checkbox-label">
+            <input id="physics-enabled" type="checkbox" />
+            Enable live simulation
+          </label>
+          <label class="slider-label">
+            Gravity <span id="gravity-val">0.60</span>
+            <input id="gravity" type="range" min="0" max="2" step="0.05" value="0.60" />
+          </label>
+          <label class="slider-label">
+            Stiffness <span id="stiffness-val">0.85</span>
+            <input id="stiffness" type="range" min="0.1" max="1" step="0.01" value="0.85" />
+          </label>
+          <label class="slider-label">
+            Damping <span id="damping-val">0.98</span>
+            <input id="damping" type="range" min="0.8" max="1" step="0.005" value="0.98" />
+          </label>
+          <p class="micro-note">
+            Drag Sim mode: click-drag a guide tip to pull it, release to let it
+            settle under verlet-integrated physics with head collision.
+          </p>
+        </div>
+
+        <div class="panel-header">Budget Dashboard</div>
+        <div class="panel-section" id="budget-panel">
+          <label class="slider-label">
+            Card visibility boost <span id="card-boost-val">6.0×</span>
+            <input id="card-boost" type="range" min="1" max="25" step="0.5" value="6" />
+          </label>
+          <p class="micro-note">
+            Editing aid only — visually enlarges cards so thin/small hair
+            reads clearly from a normal camera distance. Never affects real
+            card size, the Budget numbers below, or OBJ export.
+          </p>
+          <label class="slider-label">
+            Target card budget <span id="budget-target-val">120</span>
+            <input id="budget-target" type="range" min="20" max="600" step="10" value="120" />
+          </label>
+
+          <div class="budget-row">
+            <span class="budget-label">Cards</span>
+            <span class="budget-value" id="budget-cards">0</span>
+          </div>
+          <div class="budget-row">
+            <span class="budget-label">Quads (topology)</span>
+            <span class="budget-value" id="budget-quads">0</span>
+          </div>
+          <div class="budget-row">
+            <span class="budget-label">Triangles (GPU cost)</span>
+            <span class="budget-value" id="budget-tris">0</span>
+          </div>
+          <div class="budget-row">
+            <span class="budget-label">Vertices</span>
+            <span class="budget-value" id="budget-verts">0</span>
+          </div>
+          <div class="budget-row">
+            <span class="budget-label">Atlas texture</span>
+            <span class="budget-value" id="budget-texmem">—</span>
+          </div>
+
+          <div id="budget-status" class="budget-status">No cards generated yet</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ===================== TEXTURE GENERATOR TAB ===================== -->
+  <div id="tab-texturegen" class="tab-panel">
+    <div id="texgen-toolbar">
+      <div class="tool-group">
+        <button class="brush-btn active" data-brush="paint" title="Freehand painting">Paint Brush</button>
+        <button class="brush-btn" data-brush="fill" title="Bucket fill: click a region to flood-fill it with the primary color">Fill</button>
+        <button class="brush-btn" data-brush="pen" title="Click to place points; each click draws a straight segment. Double-click to end the strand.">Pen</button>
+        <button class="brush-btn" data-brush="eraser" title="Erases paint — respects Soft Falloff and Width Profile like the Paint Brush">Eraser</button>
+        <button class="brush-btn" data-brush="gradient" title="Gradient shapes">Gradient</button>
+        <select id="texgen-gradient-shape" title="Gradient shape">
+          <option value="linear">Linear</option>
+          <option value="radial">Radial</option>
+          <option value="square">Square (box)</option>
+          <option value="diamond">Diamond</option>
+          <option value="ellipse">Ellipse</option>
+          <option value="triangle">Triangle</option>
+        </select>
+      </div>
+      <div class="tool-group" id="paint-brush-options">
+        <label class="checkbox-label"><input type="checkbox" id="texgen-falloff" /> Soft falloff</label>
+        <label class="checkbox-label"><input type="checkbox" id="texgen-lazy" /> Lazy brush</label>
+        <label class="slider-label" id="texgen-lazy-radius-wrap" style="display:none;">Lazy radius <span id="texgen-lazy-radius-val">25</span>
+          <input id="texgen-lazy-radius" type="range" min="5" max="80" value="25" />
+        </label>
+      </div>
+      <div class="tool-group">
+        <span class="micro-note" style="margin-right:2px;">Palette</span>
+        <div id="texgen-palette"></div>
+        <button id="btn-texgen-add-color" class="ghost-btn small" title="Add another color to the palette">+ Color</button>
+      </div>
+      <div class="tool-group">
+        <label class="slider-label">Brush size <span id="texgen-size-val">40</span>
+          <input id="texgen-size" type="range" min="2" max="150" value="40" />
+        </label>
+        <label class="slider-label">Opacity <span id="texgen-opacity-val">1.00</span>
+          <input id="texgen-opacity" type="range" min="0.05" max="1" step="0.05" value="1" />
+        </label>
+      </div>
+      <div class="tool-group">
+        <label class="slider-label">View as
+          <select id="texgen-view-mode">
+            <option value="composite">Composite</option>
+            <option value="alpha">Alpha (Opacity)</option>
+            <option value="luminance">Luminance (Height approx.)</option>
+            <option value="red">Red channel</option>
+            <option value="green">Green channel</option>
+            <option value="blue">Blue channel</option>
+          </select>
+        </label>
+      </div>
+      <div class="tool-group" style="margin-left:auto;">
+        <button id="btn-texgen-clear" class="ghost-btn small">Clear Canvas</button>
+        <button id="btn-texgen-send" class="primary-btn">Send to Atlas Editor</button>
+      </div>
+    </div>
+
+    <div id="texgen-body">
+      <div id="texgen-brush-panel" class="panel">
+        <div class="panel-header">Brush &amp; Pen Settings</div>
+        <div class="panel-section">
+          <label class="slider-label">Brush texture
+            <select id="texgen-brush-texture">
+              <option value="smooth">Smooth</option>
+              <option value="textured">Textured (Dry Media)</option>
+              <option value="ink">Ink</option>
+              <option value="marker">Marker</option>
+              <option value="watercolor">Watercolor</option>
+              <option value="custom-image" id="texgen-custom-brush-option" disabled>Imported: (none)</option>
+            </select>
+          </label>
+          <button id="btn-import-brush" class="ghost-btn full-width">Import Brush Texture (PNG/JPG)</button>
+          <p class="micro-note">Procedural stroke styles — not literal brush-library assets, just genuinely different rendering per category. Imported brushes stamp your own image instead.</p>
+
+          <div class="panel-section-title">Width Profile</div>
+          <select id="texgen-width-profile">
+            <option value="uniform">Uniform</option>
+            <option value="taper-both">Taper both ends</option>
+            <option value="taper-start">Taper start only</option>
+            <option value="taper-end">Taper end only</option>
+            <option value="thin-thick-thin">Thin → Thick → Thin</option>
+            <option value="thick-thin-thick">Thick → Thin → Thick</option>
+            <option value="custom">Custom (draw curve)</option>
+          </select>
+          <label class="slider-label">Taper length <span id="texgen-taper-length-val">20%</span>
+            <input id="texgen-taper-length" type="range" min="5" max="45" value="20" />
+          </label>
+
+          <div id="texgen-curve-editor-wrap" class="hidden">
+            <canvas id="texgen-curve-editor" width="220" height="110"></canvas>
+            <div class="xyz-row" style="margin-top:6px;">
+              <button id="btn-curve-reset" class="ghost-btn small" style="flex:1;">Reset</button>
+            </div>
+            <p class="micro-note">Drag the three points — the two ends and the middle handle — to shape how width varies along the stroke. Height = width at that point.</p>
+          </div>
+
+          <div class="panel-section-title">Pen Stroke (Cap / Join)</div>
+          <label class="slider-label">Cap style
+            <select id="texgen-pen-cap">
+              <option value="round">Round</option>
+              <option value="butt">Butt</option>
+              <option value="square">Square</option>
+            </select>
+          </label>
+          <label class="slider-label">Join style
+            <select id="texgen-pen-join">
+              <option value="round">Round</option>
+              <option value="miter">Miter</option>
+              <option value="bevel">Bevel</option>
+            </select>
+          </label>
+          <p class="micro-note">Width Profile and taper apply to both the Paint Brush and Pen. Cap/Join apply to Pen only.</p>
+        </div>
+      </div>
+
+      <div id="texgen-canvas-wrap">
+        <canvas id="texgen-canvas" width="512" height="512"></canvas>
+        <div id="texgen-cursor-ring" class="hidden"></div>
+      </div>
+
+      <div id="texgen-modifiers" class="panel">
+        <div class="panel-header">Modifiers</div>
+        <div class="panel-section">
+
+          <div class="modifier-block">
+            <label class="checkbox-label"><input type="checkbox" id="mod-roottip-enabled" /> Root → Tip Gradient</label>
+            <label class="slider-label inline">Root <input type="color" id="mod-roottip-root" value="#241209" /></label>
+            <label class="slider-label inline">Tip <input type="color" id="mod-roottip-tip" value="#d8b98a" /></label>
+          </div>
+
+          <div class="modifier-block">
+            <label class="checkbox-label"><input type="checkbox" id="mod-noise-enabled" /> Noise / Speckle</label>
+            <label class="slider-label">Amount <span id="mod-noise-val">0.15</span>
+              <input id="mod-noise" type="range" min="0" max="1" step="0.05" value="0.15" />
+            </label>
+            <label class="slider-label">Style
+              <select id="mod-noise-style">
+                <option value="dots">Dots</option>
+                <option value="linear">Linear (hair-strand grain)</option>
+              </select>
+            </label>
+            <label class="slider-label" id="mod-noise-angle-wrap" style="display:none;">Angle <span id="mod-noise-angle-val">90°</span>
+              <input id="mod-noise-angle" type="range" min="0" max="180" value="90" />
+            </label>
+          </div>
+
+          <div class="modifier-block">
+            <label class="checkbox-label"><input type="checkbox" id="mod-bands-enabled" /> Highlight Bands</label>
+            <label class="slider-label">Band count <span id="mod-bands-count-val">5</span>
+              <input id="mod-bands-count" type="range" min="1" max="20" value="5" />
+            </label>
+            <label class="slider-label">Strength <span id="mod-bands-val">0.35</span>
+              <input id="mod-bands" type="range" min="0" max="1" step="0.05" value="0.35" />
+            </label>
+          </div>
+
+          <div class="modifier-block">
+            <label class="checkbox-label"><input type="checkbox" id="mod-falloff-enabled" /> Opacity Falloff (tip fade)</label>
+            <label class="slider-label">Fade start <span id="mod-falloff-val">0.60</span>
+              <input id="mod-falloff" type="range" min="0" max="1" step="0.05" value="0.6" />
+            </label>
+          </div>
+
+          <div class="modifier-block">
+            <label class="checkbox-label"><input type="checkbox" id="mod-hue-enabled" /> Hue Variation</label>
+            <label class="slider-label">Amount <span id="mod-hue-val">0.08</span>
+              <input id="mod-hue" type="range" min="0" max="0.5" step="0.02" value="0.08" />
+            </label>
+          </div>
+
+          <p class="micro-note">Modifiers recompute from your brush strokes each time — they never stack on top of themselves.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== ATLAS TAB ===================== -->
+  <div id="tab-atlas" class="tab-panel">
+    <div id="atlas-toolbar">
+      <button id="btn-import-atlas" class="primary-btn">Import Atlas (PNG / JPG / PSD)</button>
+      <span id="atlas-filename" class="micro-note"></span>
+      <label class="checkbox-label" title="If painted hair looks upside-down on the cards, toggle this.">
+        <input type="checkbox" id="atlas-flip-v" /> Flip texture vertically
+      </label>
+      <div class="tool-group" style="margin-left:auto;">
+        <label class="slider-label inline">Region name
+          <input id="region-name" type="text" value="clump_01" />
+        </label>
+        <button id="btn-add-region" class="ghost-btn small">Tag Selection as Region</button>
+        <button id="btn-clear-regions" class="ghost-btn small">Clear All</button>
+      </div>
+    </div>
+    <div id="atlas-body">
+      <div id="atlas-canvas-wrap">
+        <canvas id="atlas-canvas"></canvas>
+        <div id="atlas-empty-hint" class="hint-text">
+          Import a flattened hair card atlas (PNG/JPG export from Photoshop or
+          FiberShop) to begin tagging clump regions.<br/>
+          <span class="micro-note">PSD support parses composite pixels where possible; if a file fails, flatten and export as PNG from Photoshop first.</span>
+        </div>
+      </div>
+      <div id="atlas-region-panel" class="panel">
+        <div class="panel-header">Tagged Regions</div>
+        <div id="region-list" class="scroll-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== HAIR TAB ===================== -->
+  <div id="tab-hair" class="tab-panel">
+    <div id="hair-body">
+      <div id="hair-global-panel" class="panel">
+        <div class="panel-header">Global Adjustments</div>
+        <div class="panel-section">
+          <label class="slider-label inline">Tint <input type="color" id="hair-tint" value="#ffffff" /></label>
+          <p class="micro-note">Multiplies every card's texture by this color — leave white for no tint.</p>
+
+          <div class="panel-section-title">Emissive (self-glow)</div>
+          <canvas id="hair-emissive-gradient" width="240" height="20" title="Click to pick a hue"></canvas>
+          <label class="slider-label inline">Color <input type="color" id="hair-emissive-color" value="#000000" /></label>
+          <label class="slider-label">Intensity <span id="hair-emissive-intensity-val">0.00</span>
+            <input id="hair-emissive-intensity" type="range" min="0" max="3" step="0.05" value="0" />
+          </label>
+
+          <div class="panel-section-title">Specular</div>
+          <label class="slider-label">Roughness (0 = glossy/specular, 1 = matte) <span id="hair-roughness-val">0.60</span>
+            <input id="hair-roughness" type="range" min="0" max="1" step="0.05" value="0.6" />
+          </label>
+
+          <div class="panel-section-title">Batch multipliers (applied once, to every guide)</div>
+          <label class="slider-label">Density × <span id="hair-density-mult-val">1.00</span>
+            <input id="hair-density-mult" type="range" min="0.25" max="3" step="0.05" value="1" />
+          </label>
+          <label class="slider-label">Spread × <span id="hair-spread-mult-val">1.00</span>
+            <input id="hair-spread-mult" type="range" min="0.25" max="3" step="0.05" value="1" />
+          </label>
+          <label class="slider-label">Taper override
+            <select id="hair-taper-override">
+              <option value="keep">Leave as-is</option>
+              <option value="on">Force on</option>
+              <option value="off">Force off</option>
+            </select>
+          </label>
+          <button id="btn-apply-global-hair" class="primary-btn full-width">Apply to All Guides &amp; Regenerate</button>
+          <p class="micro-note">This is undoable (Ctrl+Z) like any other guide edit.</p>
+        </div>
+      </div>
+
+      <div id="hair-summary-panel" class="panel">
+        <div class="panel-header">Summary</div>
+        <div class="panel-section">
+          <div class="budget-row"><span class="budget-label">Layers</span><span class="budget-value" id="hair-stat-layers">0</span></div>
+          <div class="budget-row"><span class="budget-label">Guides</span><span class="budget-value" id="hair-stat-guides">0</span></div>
+          <div class="budget-row"><span class="budget-label">Total cards</span><span class="budget-value" id="hair-stat-cards">0</span></div>
+          <div class="budget-row"><span class="budget-label">Total triangles</span><span class="budget-value" id="hair-stat-tris">0</span></div>
+        </div>
+      </div>
+
+      <div id="hair-viewport-wrap">
+        <canvas id="hair-viewport-canvas"></canvas>
+        <p class="hint-text">Independent view — orbit freely here. Right-drag: orbit. Alt/Ctrl+right-drag: pan. Shift+right-drag: rotate light.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== RENDER TAB ===================== -->
+  <div id="tab-render" class="tab-panel">
+    <div id="render-body">
+      <div id="render-panel" class="panel">
+        <div class="panel-header">Scene</div>
+        <div class="panel-section">
+          <label class="slider-label inline">Background <input type="color" id="render-bg-color" value="#101118" /></label>
+        </div>
+
+        <div class="panel-header">Lighting</div>
+        <div class="panel-section">
+          <label class="slider-label">Ambient (sky/ground) <span id="render-hemi-val">1.10</span>
+            <input id="render-hemi" type="range" min="0" max="3" step="0.05" value="1.1" />
+          </label>
+          <label class="slider-label">Key light intensity <span id="render-key-val">1.20</span>
+            <input id="render-key" type="range" min="0" max="3" step="0.05" value="1.2" />
+          </label>
+          <label class="slider-label inline">Key light color <input type="color" id="render-key-color" value="#ffffff" /></label>
+        </div>
+
+        <div class="panel-header">Render Quality</div>
+        <div class="panel-section">
+          <select id="render-quality-mode">
+            <option value="standard">Standard (WebGL)</option>
+            <option value="high">High Fidelity (WebGL, extra samples)</option>
+          </select>
+          <label class="checkbox-label"><input type="checkbox" id="render-shadows-enabled" /> Soft shadows (hair casts onto head)</label>
+          <label class="checkbox-label"><input type="checkbox" id="render-ao-enabled" /> Ambient occlusion (contact shadow darkening)</label>
+          <p class="micro-note">
+            Honest technical note: this app runs in a browser engine (Chromium/WebGL) — there's no real DirectX 11, OpenGL, or hardware-raytraced backend to switch between here, and labeling something "Ray Tracing" without it being that would just be misleading. Soft Shadows and Ambient Occlusion above are real WebGL techniques (shadow mapping, screen-space AO) that genuinely improve how the hair and head read together — that's the actual visual goal, delivered honestly rather than under a borrowed name.
+          </p>
+        </div>
+
+        <div class="panel-header">Tone Mapping</div>
+        <div class="panel-section">
+          <label class="checkbox-label"><input type="checkbox" id="render-tonemap-enabled" /> Filmic tone mapping (ACES)</label>
+          <label class="slider-label">Exposure <span id="render-exposure-val">1.00</span>
+            <input id="render-exposure" type="range" min="0.1" max="3" step="0.05" value="1" />
+          </label>
+        </div>
+
+        <div class="panel-header">Bloom</div>
+        <div class="panel-section">
+          <label class="checkbox-label"><input type="checkbox" id="render-bloom-enabled" /> Enable bloom</label>
+          <label class="slider-label">Strength <span id="render-bloom-strength-val">0.60</span>
+            <input id="render-bloom-strength" type="range" min="0" max="2" step="0.05" value="0.6" />
+          </label>
+          <label class="slider-label">Radius <span id="render-bloom-radius-val">0.40</span>
+            <input id="render-bloom-radius" type="range" min="0" max="1" step="0.05" value="0.4" />
+          </label>
+          <label class="slider-label">Threshold <span id="render-bloom-threshold-val">0.85</span>
+            <input id="render-bloom-threshold" type="range" min="0" max="1" step="0.05" value="0.85" />
+          </label>
+        </div>
+
+        <div class="panel-header">Debug</div>
+        <div class="panel-section">
+          <label class="checkbox-label"><input type="checkbox" id="render-stats-enabled" /> Show stats overlay</label>
+        </div>
+      </div>
+
+      <div id="render-viewport-wrap">
+        <canvas id="render-viewport-canvas"></canvas>
+        <p class="hint-text">Final-look preview, independently navigable. Right-drag: orbit. Alt/Ctrl+right-drag: pan. Shift+right-drag: rotate light.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== BAKE & COLORS TAB ===================== -->
+  <div id="tab-bakecolors" class="tab-panel">
+    <div id="bakecolors-body">
+      <div id="bakecolors-canvas-wrap">
+        <canvas id="bakecolors-canvas" width="512" height="512"></canvas>
+        <p class="micro-note">This mirrors your Texture Canva painting. Adjustments preview live; "Bake" writes them permanently into the texture.</p>
+      </div>
+      <div id="bakecolors-panel" class="panel">
+        <div class="panel-header">Bake Target</div>
+        <div class="panel-section">
+          <select id="bc-target">
+            <option value="albedo">Albedo (Color)</option>
+            <option value="alpha">Alpha (Opacity)</option>
+            <option value="height">Height (luminance approx.)</option>
+            <option value="roottip">Root-Tip (vertical position)</option>
+          </select>
+          <p class="micro-note">
+            Only channels this tool can genuinely derive are offered here —
+            no Specular/Normal/Ambient, since a flat painted texture has no
+            real lighting-model data to generate those from.
+          </p>
+        </div>
+
+        <div class="panel-header">Color Adjustments</div>
+        <div class="panel-section">
+          <label class="slider-label">Brightness <span id="bc-brightness-val">0</span>
+            <input id="bc-brightness" type="range" min="-100" max="100" value="0" />
+          </label>
+          <label class="slider-label">Contrast <span id="bc-contrast-val">0</span>
+            <input id="bc-contrast" type="range" min="-100" max="100" value="0" />
+          </label>
+          <label class="slider-label">Saturation <span id="bc-saturation-val">0</span>
+            <input id="bc-saturation" type="range" min="-100" max="100" value="0" />
+          </label>
+          <label class="slider-label">Hue shift <span id="bc-hue-val">0°</span>
+            <input id="bc-hue" type="range" min="-180" max="180" value="0" />
+          </label>
+          <label class="checkbox-label"><input type="checkbox" id="bc-invert" /> Invert colors</label>
+        </div>
+
+        <div class="panel-header">Gradient Remap</div>
+        <div class="panel-section">
+          <label class="checkbox-label"><input type="checkbox" id="bc-remap-enabled" /> Enable</label>
+          <label class="slider-label inline">Shadow color <input type="color" id="bc-remap-dark" value="#1a0f08" /></label>
+          <label class="slider-label inline">Highlight color <input type="color" id="bc-remap-light" value="#e8c99a" /></label>
+          <p class="micro-note">Remaps each pixel's brightness through this two-color gradient — a fast way to recolor while keeping the painted shading.</p>
+        </div>
+
+        <div class="panel-header">Solid Color</div>
+        <div class="panel-section">
+          <label class="checkbox-label"><input type="checkbox" id="bc-solid-enabled" /> Enable</label>
+          <label class="slider-label inline">Color <input type="color" id="bc-solid-color" value="#8a5a2b" /></label>
+          <p class="micro-note">Flattens every opaque pixel to one flat color, keeping only the alpha mask shape — useful for a quick dye-color pass.</p>
+        </div>
+
+        <div class="panel-section">
+          <button id="btn-bake-apply" class="primary-btn full-width">Bake Into Texture</button>
+          <button id="btn-bake-reset" class="ghost-btn full-width">Reset Sliders</button>
+          <p class="micro-note">Baking is permanent for this session (undo via re-painting isn't tracked here — export before baking if you want to keep an unbaked copy).</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== EXPORT TAB ===================== -->
+  <div id="tab-export" class="tab-panel">
+    <div id="export-body">
+      <div id="export-simple-panel" class="panel">
+        <div class="panel-header">Output Location</div>
+        <div class="panel-section">
+          <div class="xyz-row" style="align-items:center;">
+            <input id="export-folder" type="text" placeholder="No folder chosen" readonly style="flex:1;" />
+            <button id="btn-export-browse" class="ghost-btn small">Browse</button>
+          </div>
+          <label class="slider-label inline">Name prefix <input type="text" id="export-prefix" value="hair" /></label>
+        </div>
+
+        <div class="panel-header">Simple Export</div>
+        <div class="panel-section">
+          <p class="micro-note">Each enabled map is written as its own PNG: prefix_MapName.png. Only maps this tool can genuinely derive are offered — see note below.</p>
+          <label class="checkbox-label"><input type="checkbox" id="exp-albedo" checked /> Albedo (Color)</label>
+          <label class="checkbox-label"><input type="checkbox" id="exp-alpha" checked /> Alpha (Opacity)</label>
+          <label class="checkbox-label"><input type="checkbox" id="exp-height" /> Height (luminance approx.)</label>
+          <label class="checkbox-label"><input type="checkbox" id="exp-roottip" /> Root-Tip Gradient</label>
+          <label class="checkbox-label"><input type="checkbox" id="exp-flow" /> Directional Flow (from stroke direction)</label>
+          <label class="checkbox-label"><input type="checkbox" id="exp-translucency" /> Translucency (alpha-based approx.)</label>
+          <button id="btn-export-simple" class="primary-btn full-width">Export Simple</button>
+          <p class="micro-note">Not offered: Strand ID, Normal, Specular, Ambient — these need real per-strand/3D lighting data a flat painted texture doesn't have. Flow and Translucency above are real, honest approximations (tracked from actual stroke direction / alpha).</p>
+        </div>
+      </div>
+
+      <div id="export-advanced-panel" class="panel">
+        <div class="panel-header panel-header-row">
+          <span>Advanced Export (channel packing)</span>
+          <button id="btn-add-output-image" class="ghost-btn small">+ Add Output Image</button>
+        </div>
+        <div id="export-advanced-list" class="scroll-list"></div>
+        <div class="panel-section">
+          <button id="btn-export-advanced" class="primary-btn full-width">Export Advanced</button>
+        </div>
+      </div>
+
+      <div id="export-model-panel" class="panel">
+        <div class="panel-header">3D Model Export</div>
+        <div class="panel-section">
+          <button id="btn-export-obj-plain" class="ghost-btn full-width">Export OBJ (geometry only)</button>
+          <button id="btn-export-obj-mtl" class="primary-btn full-width">Export OBJ + MTL (with texture)</button>
+          <button id="btn-export-gltf" class="primary-btn full-width">Export glTF Binary (.glb, textured)</button>
+          <p class="micro-note">glTF is the most reliable cross-engine option — Blender, Unity, Godot, and Unreal all import it directly with textures embedded in one file.</p>
+
+          <div class="panel-section-title">Experimental</div>
+          <button id="btn-export-fbx" class="ghost-btn full-width">Export FBX (ASCII, best-effort)</button>
+          <button id="btn-export-usd" class="ghost-btn full-width">Export USD (.usda, textured mesh)</button>
+          <button id="btn-export-usd-curves" class="ghost-btn full-width">Export Guide Curves (.usda, real strand data)</button>
+          <p class="micro-note">
+            These three are hand-written against each format's documented text/ASCII structure, with no official library to build on and no way for me to validate them against real Autodesk/Pixar tooling — treat them as worth trying, not guaranteed. glTF above remains the safest bet.
+          </p>
+          <p class="micro-note">
+            On Unreal "Groom Assets" specifically: those are for strand-simulated hair (Chaos Hair), a different asset type than the card-based hair this tool makes — card hair imports as a plain Static Mesh, which glTF/OBJ already cover correctly. "Export Guide Curves" above is the honest equivalent for strand data: it's real USD BasisCurves geometry (your actual guide points, not fabricated), which USD-aware tools can bring in as curves — the closest thing to a Groom-style workflow this app can genuinely produce.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== PREFERENCES MODAL ===================== -->
+  <div id="preferences-modal" class="modal-overlay hidden">
+    <div class="modal-box">
+      <div class="modal-header">Preferences</div>
+      <div class="modal-body">
+        <label class="color-row">
+          <span>Background</span>
+          <input type="color" id="pref-bg0" />
+        </label>
+        <label class="color-row">
+          <span>Panel background</span>
+          <input type="color" id="pref-bg1" />
+        </label>
+        <label class="color-row">
+          <span>Guide / accent color</span>
+          <input type="color" id="pref-thread" />
+        </label>
+        <label class="color-row">
+          <span>Physics / drag accent</span>
+          <input type="color" id="pref-gold" />
+        </label>
+        <label class="color-row">
+          <span>Card outline color</span>
+          <input type="color" id="pref-card-outline" />
+        </label>
+        <p class="micro-note">Changes apply immediately and are remembered next time you open the app.</p>
+
+        <div class="panel-section-title" style="margin-top:6px;">Autosave</div>
+        <label class="checkbox-label">
+          <input type="checkbox" id="pref-autosave-enabled" />
+          Enable autosave
+        </label>
+        <label class="slider-label inline">Every
+          <select id="pref-autosave-interval">
+            <option value="5">5 minutes</option>
+            <option value="10">10 minutes</option>
+            <option value="15">15 minutes</option>
+            <option value="20">20 minutes</option>
+            <option value="25">25 minutes</option>
+            <option value="30">30 minutes</option>
+          </select>
+        </label>
+        <p class="micro-note">Autosave writes to its own file — it never overwrites the project file you manually saved to, so your own saves are always safe. Look for "Autosaved" in the viewport's bottom-left hint after it runs.</p>
+      </div>
+      <div class="modal-footer">
+        <button id="pref-reset" class="ghost-btn small">Reset to defaults</button>
+        <button id="pref-close" class="primary-btn">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="platform-web.js"></script>
+  <script type="module" src="texture-gen.js"></script>
+  <script type="module" src="bake-colors.js"></script>
+  <script type="module" src="export-panel.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
