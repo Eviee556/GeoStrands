@@ -11,7 +11,7 @@ Place a few guide curves on a head and GeoStrands builds textured, game-ready ha
 ![Three.js](https://img.shields.io/badge/three.js-r160-black)
 ![Platform](https://img.shields.io/badge/runs%20in-any%20modern%20browser-4c8bf5)
 
-[**Download for Windows**](https://github.com/Eviee556/GeoStrangs/releases/latest) · [**Try it in the browser**](https://eviee556.github.io/GeoStrangs/) · [Tutorials](docs/TUTORIALS.md) · [Examples](docs/EXAMPLES.md) · [Technical docs](docs/TECHNICAL.md) · [How it was made](docs/HOW-IT-WAS-MADE.md)
+[**Download for Windows**](https://github.com/Eviee556/GeoStrands/releases/latest) · [**Try it in the browser**](https://eviee556.github.io/GeoStrands/) · [Tutorials](docs/TUTORIALS.md) · [Examples](docs/EXAMPLES.md) · [Technical docs](docs/TECHNICAL.md) · [How it was made](docs/HOW-IT-WAS-MADE.md)
 
 ![GeoStrands with the sample hairstyle loaded](docs/images/04-sample-project-loaded.png)
 
@@ -54,18 +54,18 @@ Hair cards are textured strips of geometry that stand in for thousands of indivi
 ## Getting started
 
 **Windows (no install):**
-1. Download `GeoStrands-v0.1.0-win.zip` from [Releases](https://github.com/Eviee556/GeoStrangs/releases/latest).
+1. Download `GeoStrands-v0.1.0-win.zip` from [Releases](https://github.com/Eviee556/GeoStrands/releases/latest).
 2. Unzip it and double-click **`GeoStrands.exe`**. The app opens in its own window.
 3. Load `examples/sample-hairstyle.geostrands.json` with **File → Open Project**.
 
 > The launcher is not code-signed yet, so Windows SmartScreen may warn on first run. Click **More info → Run anyway**.
 
-**Any OS:** open `GeoStrands.html` from the release zip in Chrome, Edge or Firefox. It is a single self-contained file that works offline. You can also use the [browser version](https://eviee556.github.io/GeoStrangs/).
+**Any OS:** open `GeoStrands.html` from the release zip in Chrome, Edge or Firefox. It is a single self-contained file that works offline. You can also use the [browser version](https://eviee556.github.io/GeoStrands/).
 
 **From source:**
 ```bash
-git clone https://github.com/Eviee556/GeoStrangs.git
-cd GeoStrangs
+git clone https://github.com/Eviee556/GeoStrands.git
+cd GeoStrands
 npm install
 npm start          # dev server at http://localhost:8080
 npm run build      # → dist/GeoStrands.html (single offline file)

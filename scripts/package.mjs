@@ -26,7 +26,7 @@ writeFileSync(`${stage}/README.txt`, [
   'Alternative: open GeoStrands.html in Chrome, Edge or Firefox.',
   'Sample project: File > Open Project... > examples/sample-hairstyle.geostrands.json',
   '',
-  'Docs: https://github.com/Eviee556/GeoStrangs',
+  'Docs: https://github.com/Eviee556/GeoStrands',
   'Created by Charlize Pauli. MIT License.',
   '',
 ].join('\r\n'));
