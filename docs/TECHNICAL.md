@@ -101,7 +101,7 @@ Guides are created by `makeGuide()` in `src/app.js` and kept in the module-level
 | `cardWidth` | `0.045` (slider 0.01 to 0.15) | Base card width in scene units. |
 | `spread` | `0.03` (slider 0 to 0.15) | Range of the random sideways offset for each card. |
 | `taper` | `true` | Linear width taper from root to tip. |
-| `atlasRegionIndex` | `-1` | Index into `store.regions`. `-1` means untextured. |
+| `atlasRegionIndex` | `-1` | Index into `store.regions`. `-1` means untextured (the Atlas slice dropdown shows "— none (flat gray) —"). |
 | `mirrorOf` | `null` | Paired guide when Symmetry Mode is on. |
 
 Edits apply to `guidesToEdit()`: the multi-selection `selectedGuideSet` if it has entries, otherwise the single `selectedGuide`.
@@ -131,7 +131,7 @@ Edits apply to `guidesToEdit()`: the multi-selection `selectedGuideSet` if it ha
 }
 ```
 
-Cards are not saved. `loadProjectFromJSON` rebuilds them with `regenerateCards`, so the random jitter differs after each load. Manual Edit changes (vertex edits, subdivision, deleted cards), `mirrorOf` links, Texture Canva paint, render settings and material tweaks are not saved either. The atlas image is embedded as a data URL, so a project file is self-contained.
+Cards are not saved. `loadProjectFromJSON` rebuilds them with `regenerateCards`, so the random jitter differs after each load. The atlas image decodes asynchronously: `restoreAtlasFromProject` returns the Promise from `loadImageFromDataURL`, and once it resolves, `loadProjectFromJSON` runs `regenerateCards` again on the loaded guides (skipping any deleted in the meantime), so the cards are textured with no user action. Manual Edit changes (vertex edits, subdivision, deleted cards), `mirrorOf` links, Texture Canva paint, render settings and material tweaks are not saved either, but the current Hair tab values are re-applied to the rebuilt cards (section 5.2). The atlas image is embedded as a data URL, so a project file is self-contained.
 
 ### 2.5 Annotated example (`examples/sample-hairstyle.geostrands.json`)
 
@@ -195,7 +195,7 @@ Guides are stored in mirrored pairs, but the file has no `mirrorOf` field, so af
   - **Bend**: rotates every point after the root about `right` through the root by `bendDeg × localT`, where `localT` ramps from 0 at the start percentage to 1 at the tip.
   - **Curl**: offsets each point by `(cos θ · right + sin θ · normal) · amount · localT`, with `θ = localT · turns · 2π`.
   - **Noise**: offsets by `sin(wave) · amount` along `right` and `cos(1.3 · wave) · 0.6 · amount` along `normal`, with `wave = t · freq · 2π + phase` and a random phase per guide. Despite the name, this is a deterministic sine wave, not a noise function.
-  - **Scatter**: copies `selectedGuide` `count` times. Each copy's root is placed at a random offset within `radius` in the plane tangent to the scalp, projected back to the surface with `headSurfaceRadiusAt`. The other points get uniform jitter of `±randomness × 0.025`.
+  - **Scatter**: copies `selectedGuide` `count` times. Each copy's root is placed at a random offset within `radius` in the plane tangent to the scalp, projected back to the surface with `headSurfaceRadiusAt`. The other points get uniform jitter of `±randomness × 0.025`. Each copy gets its cards built straight away.
   - **Clump**: resamples every selected guide to 12 points, averages them into a center path, then lerps each guide toward it by `min(1, amount · (1 − tipBias + tipBias · t))`. The root stays where it is.
   - **Subdivide / Unsubdivide**: resamples the raw points with `getSpacedPoints` to `2n − 1` or `round((n + 1) / 2)` points (never fewer than 2).
 
@@ -237,6 +237,7 @@ With Mode set to Manual:
 - A second click on the selected card is tested against that card alone. `pickGridSelection` then maps the hit to a vertex, an edge (one row's two vertices) or a face (two adjacent rows), assuming the `row × 2 + col` vertex layout of `PlaneGeometry(w, h, 1, segments)`.
 - Dragging moves the selected vertices in screen space along the camera's right/up vectors, scaled by `distance × 0.0015` and divided by the card's display scale.
 - **G / S / R** start a modal grab, scale or rotate (`startTransform`, `updateTransformPreview`). X/Y/Z constrain the transform to the card's local axis and draw a dashed axis line. Click or Enter confirms. Esc or right-click cancels and restores the saved state.
+- Unsubdivided cards are 8-vertex two-sided geometry (front 0–3, back 4–7 in the same order), and picking only indexes the front. After every drag, grab, scale, rotate or cancel, `syncTwoSidedBackFace` copies the front positions onto the back face, so both sides move together.
 - **Subdivide Card** (`rebuildCardGeometry`) replaces the card with a **single-sided** `PlaneGeometry(w, h, 1, segments + 1)` and gives it its own cloned material with `side: DoubleSide`. It also records which end row sits closest to `headCenter` as `pinnedRow`.
 - Position/rotation number fields write straight to `card.position` and `card.rotation`. Delete/Backspace removes the selected card.
 
@@ -295,11 +296,12 @@ new THREE.MeshStandardMaterial({
   side: THREE.FrontSide,   // two-sidedness lives in the geometry
   roughness: 0.6,
 });
+applyHairTabSettings(material);
 ```
 
 With an atlas loaded, fragments below 0.35 alpha are discarded, and the rest are alpha-blended with depth writes still on. Two-sidedness comes from duplicated, reversed geometry rather than `side: DoubleSide`, so it carries through to OBJ, FBX and USD, which have no standard double-sided flag. The atlas texture is created once per image (`getAtlasTexture`) in `SRGBColorSpace`.
 
-Hair tab adjustments (`hair-tint`, emissive color and intensity, roughness) change the existing card materials through `forEachUniqueCardMaterial`. "Apply global hair" multiplies density and spread, overrides taper and rebuilds the cards.
+Hair tab adjustments (`hair-tint`, emissive color and intensity, roughness) change the existing card materials through `forEachUniqueCardMaterial`. `applyHairTabSettings` also applies the current values to every new material in `regenerateCards`, so they survive Regenerate Cards, undo and project load. A pure-white tint counts as untouched and leaves the base color alone (white with an atlas, the guide color without). "Apply global hair" multiplies density and spread, overrides taper and rebuilds the cards.
 
 ### 5.3 Post-processing
 
@@ -325,7 +327,7 @@ All mesh exporters use world-space card vertices at true scale (`manualScale` on
 |---|---|---|
 | OBJ | `buildOBJText(false)` → `hcsAPI.exportOBJ` | One object `hair_cards`, `v` and `vt` per vertex, `f a/a b/b c/c d/d` quads. No normals. |
 | OBJ + MTL | `buildOBJText(true)`, `buildMTLText`, `getCompositeTextureBase64` → `hcsAPI.exportOBJWithMTL` | Adds `mtllib hair-cards.mtl` and a `usemtl guide_<index>` block for each guide that has cards. The MTL has `illum 2`, `Kd 1 1 1` and, if an atlas is loaded, `map_Kd` and `map_d` set to `hair-cards_albedo.png`. That PNG is the atlas image (`store.atlasImage`) redrawn to a canvas. |
-| GLB | `GLTFExporter.parse(..., { binary: true })` → `hcsAPI.exportGLB` | Copies of every card (shared geometry and material, real scale) in a throwaway `Group`, so the live scene is never touched. Textures are embedded. The `ArrayBuffer` is base64-encoded for the platform call. |
+| GLB | `GLTFExporter.parse(..., { binary: true })` → `hcsAPI.exportGLB` | Copies of every card (shared geometry, real scale) in a throwaway `Group`, so the live scene is never touched. Each live material is cloned once with `transparent: false`, so the exporter writes `alphaMode: MASK` with `alphaCutoff: 0.35` (from `alphaTest`) instead of BLEND. Textures are embedded. The `ArrayBuffer` is base64-encoded for the platform call. |
 | FBX (ASCII 7.4) | `gatherMeshQuadData` → `buildFBXAscii` → `hcsAPI.exportText` | One `Geometry::hair_cards` with `Vertices`, `PolygonVertexIndex` (last index of each polygon stored as `-(i+1)`), per-polygon-vertex face normals from the first three quad corners, `IndexToDirect` UVs, one Phong material, a `Model` and `OO` connections. `UpAxis = 1` (Y), `UnitScaleFactor = 100`. Marked best-effort in code and UI because it has not been checked against target software. |
 | USDA mesh | `buildUSDAMesh(meshData, textureFileName)` | `Xform "hair_cards"` / `Mesh "cards"` with `faceVertexCounts` (all 4), `faceVertexIndices`, `points` and face-varying `primvars:st`. With an atlas there is also a `UsdPreviewSurface` whose `diffuseColor` and `opacity` come from a `UsdUVTexture` on `hair-cards_albedo.png`, read through a `UsdPrimvarReader_float2`, and the texture is written next to the file. `upAxis = "Y"`. |
 | USDA curves | `buildUSDACurves()` | `BasisCurves "hair_guides"`, `type = "linear"`, `curveVertexCounts` per guide and the **raw** guide points (no `length` scaling). This is real strand data for USD-aware DCC tools and groom-style pipelines. |
@@ -347,7 +349,7 @@ All maps come from the Texture Canva **composite** canvas (`getCompositeCanvas`)
 - **Simple export** writes `<prefix>_Albedo/Alpha/Height/RootTip/Flow/Translucency.png`. Single-channel maps are grayscale with alpha set to 255 (`buildSingleChannelCanvas`). The flow map is the flow buffer copied as is (`buildFlowMapCanvas`).
 - **Advanced export** (`buildPackedCanvas`) packs any key into R, G, B and A for each output image. The default output is "Mask" = R alpha, G luminance, B root-tip, A empty. An `empty` alpha is written as 255 so the PNG previews normally.
 
-**Flow buffer** (`src/texture-gen.js`). Starts filled with `rgb(128,128,128)` (no direction). Each Paint Brush dab writes `R = (dx · 0.5 + 0.5) · 255` and `G = (dy · 0.5 + 0.5) · 255` from the normalized stroke direction (`stampFlowDab`, only when the pointer moved more than 0.5 px). Each Pen segment does the same along the segment (`stampFlowLine`). Fill and gradients do not write to it.
+**Flow buffer** (`src/texture-gen.js`). Starts filled with `rgb(128,128,128)` (no direction). Each Paint Brush dab writes `R = (dx · 0.5 + 0.5) · 255` and `G = (dy · 0.5 + 0.5) · 255` from the normalized stroke direction (`stampFlowDab`, only when the pointer moved more than 0.5 px). Dabs are interpolated between pointer events at 25% of the brush diameter, and the stroke's first segment is recorded too. A Pen stroke cancelled with Esc still leaves its flow lines in the buffer. Each Pen segment does the same along the segment (`stampFlowLine`). Fill and gradients do not write to it.
 
 ### 6.3 Texture Canva compositing (`src/texture-gen.js`)
 
@@ -359,7 +361,9 @@ Three canvases: `paint` (the strokes themselves), `compositeCanvas` (paint plus 
 4. **Linear noise**: `80 + 400 · amount` random dark or light streaks at the chosen angle, with `source-atop`.
 5. **Pixel pass** (`applyPixelModifiers`): dot noise adds `(rand − 0.5) · 255 · amount` to RGB, and hue jitter shifts each pixel's HSL hue by `(rand − 0.5) · amount`. Fully transparent pixels are skipped.
 
-The brush tools: dabs along the recorded path with a radius from `widthProfileFactor(t, profile, taperFrac)` (uniform, taper start/end/both, `sin(πt)`, `1 − 0.85 sin(πt)`, or a custom quadratic Bezier curve, never below 0.05). There are brush texture variants (smooth, watercolor, marker, ink, textured, or an imported stamp tinted with `source-atop`), an optional lazy-brush stabilizer (the anchor follows the pointer only after it leaves `lazyRadius`), a true stroked path for untapered Pen strokes (respecting cap and join), a 4-way stack flood fill with an RGBA tolerance of 40, and gradient shapes. Linear, radial, triangle and ellipse use canvas gradients. Square (Chebyshev distance) and diamond (Manhattan distance) are filled pixel by pixel.
+`rand` in steps 4 and 5 is a mulberry32 PRNG reseeded with a fixed seed at the start of every `computeComposite`, so the same paint and settings always give the same pixels and exports are reproducible. Brush dabs are not seeded: the ink and textured brush styles still use `Math.random` while you paint.
+
+The brush tools: dabs along the recorded path, interpolated so they are never more than 25% of the brush diameter apart (`drawTaperedStroke`), so fast strokes leave no gaps. The overlap makes semi-transparent brush styles build up slightly denser. Each dab's radius comes from `widthProfileFactor(t, profile, taperFrac)` (uniform, taper start/end/both, `sin(πt)`, `1 − 0.85 sin(πt)`, or a custom quadratic Bezier curve, never below 0.05). There are brush texture variants (smooth, watercolor, marker, ink, textured, or an imported stamp tinted with `source-atop`), an optional lazy-brush stabilizer (the anchor follows the pointer only after it leaves `lazyRadius`), a true stroked path for untapered Pen strokes (respecting cap and join), a 4-way stack flood fill with an RGBA tolerance of 40, and gradient shapes. Linear, radial, triangle and ellipse use canvas gradients. Square (Chebyshev distance) and diamond (Manhattan distance) are filled pixel by pixel.
 
 ### 6.4 Bake & Colors (`src/bake-colors.js`)
 
@@ -373,13 +377,13 @@ There are three separate snapshot stacks. Which one Ctrl+Z (or Edit > Undo) uses
 
 | Tab | Stack | Depth | Snapshot |
 |---|---|---|---|
-| Texture Canva | `paintUndoStack` (`texture-gen.js`) | 30 | `paint.toDataURL()` |
+| Texture Canva | `paintUndoStack` (`texture-gen.js`) | 30 | `paint.toDataURL()` and the flow buffer's `toDataURL()` |
 | Atlas Editor | `regionUndoStack` (`atlas.js`) | 30 | `JSON.stringify(store.regions)` |
 | All other tabs | `undoStack` (`app.js`) | 50 (`MAX_UNDO`) | `serializeState()`: layers, active layer, guide fields as in the project file |
 
 `pushUndoSnapshot()` runs before discrete actions. For continuous gestures (slider drags, comb and drag strokes), `beginUndoableEdit()` pushes one snapshot and sets `snapshotPending` until the next `mouseup`, so a whole drag is one undo step. `restoreState` tears down every guide and rebuilds them with `makeGuide` and `regenerateCards`. Card jitter is random again, and guide ids are renumbered from 0.
 
-Not covered: Manual Edit card and vertex edits, G/S/R transforms (which have their own Esc cancel), render and material settings, and the flow buffer.
+Not covered: Manual Edit card and vertex edits, G/S/R transforms (which have their own Esc cancel), and render and material settings.
 
 ---
 
@@ -426,8 +430,9 @@ Limitations visible in the current code:
 - **Cards are separate quads, not continuous strips.** Every card in a guide maps the same full region. There is no UV split along the guide and no strip with shared vertices.
 - **Orientation comes only from the head center.** The card plane uses `pos − headCenter` as "up". There is no parallel-transport frame and no per-guide twist control. `rotJitter` is the only twist.
 - **No camera-facing mode.** Cards are fixed in world space.
-- **Manual Edit is not saved or undoable.** Edits on unsubdivided auto cards use `row × 2 + col` indexing on 8-vertex two-sided geometry, so only the front-face vertices move. Subdivided cards are single-sided in exports.
-- **Alpha**: `transparent: true` together with `alphaTest` blends with depth writes on, so sorting artifacts are possible. The vendored `GLTFExporter` turns `transparent: true` into `alphaMode: BLEND` and does not write the `alphaTest` cutoff.
+- **Manual Edit is not saved or undoable.** Subdivided cards are single-sided in exports.
+- **Alpha in the viewport**: `transparent: true` together with `alphaTest` blends with depth writes on, so sorting artifacts are possible on screen. glTF export is not affected: it clones each material with `transparent: false`, so `GLTFExporter` writes `alphaMode: MASK` with `alphaCutoff: 0.35`.
+- **Brush randomness**: Texture Canva modifiers are seeded, but the ink and textured brush styles use `Math.random` per dab, so repainting the same stroke gives slightly different pixels.
 - **PSD import** is best-effort (the browser decodes the image). Flattened PNG is recommended.
 - **FBX and USDA** writers are unvalidated text writers.
 - **Browser limits**: folder exports become individual downloads, there is one autosave slot in `localStorage`, and "recent files" is not available.
@@ -437,7 +442,7 @@ Next steps, in priority order:
 
 1. Continuous card strips with UVs that run the length of the region, plus a parallel-transport frame with a twist control.
 2. Saving Manual Edit changes and `mirrorOf` links in the project file, and covering them in undo.
-3. Clean MASK alpha in glTF and an optional alpha-to-coverage or sorted path for cinematics.
+3. An optional alpha-to-coverage or sorted path for cinematics.
 4. A proper PSD decoder and multi-atlas support.
 5. Collision against an acceleration structure or an SDF instead of per-point raycasts.
 6. Checking the FBX and USD output against target DCC tools and engines, and LOD card reduction for game budgets.

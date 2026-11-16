@@ -122,7 +122,7 @@ GeoStrands is usable but unfinished. The work I care most about:
 
 1. **Continuous card strips** with UVs that run the length of the atlas region, and a proper twist control along each guide.
 2. **Saving everything**: Manual Edit changes and symmetry pairs in the project file and in undo.
-3. **Cleaner alpha for engines**: masked (cutout) alpha in glTF by default, and better sorting for cinematic renders.
+3. **Better sorting for cinematic renders**, such as an alpha-to-coverage path.
 4. **Better import**: a real PSD decoder and more than one atlas per project.
 5. **Faster physics** with an acceleration structure for head collision, and more controls (wind, per-guide stiffness).
 6. **Checked FBX and USD output**, and card LODs for game budgets.

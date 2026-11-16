@@ -46,8 +46,6 @@ npm run build      # writes the single-file app to dist/GeoStrands.html
 - **Open** loads one of those files back. Try `examples/sample-hairstyle.geostrands.json` from the repository.
 - **File > Load Autosave…** restores the last autosave. Turn autosave on under **Edit > Preferences…** (Ctrl+,). In the browser build it is kept in the browser's local storage and never overwrites your own saved file.
 
-> **Known issue:** after opening a project, cards can show up in flat guide colors instead of the atlas texture. Click a layer in the guide list (this selects all its guides) and press **Regenerate Cards**, once for each layer, to bring the texture back.
-
 You can also use your own head mesh: **Import Head (OBJ)** and **Import Head Texture** in the right panel replace the default head. Guide points you already placed stay where they are in space.
 
 ---
@@ -81,7 +79,7 @@ With guides selected, set the *Selected Guide* sliders and press **Regenerate Ca
 | **Card width** | Card width in scene units (0.01 to 0.15). |
 | **Random spread** | Random sideways offset per card, which breaks up the strip so it reads less like a ribbon. |
 | **Taper card tips** | Narrows cards toward the tip, down to 45% width at the last card. |
-| **Atlas slice** | Which tagged atlas region the cards use. With none set, cards are drawn in the guide's flat color. |
+| **Atlas slice** | Which tagged atlas region the cards use. With **— none (flat gray) —** selected, cards are drawn in the guide's flat color. |
 
 ![Cards built on all ten guides (density 8, width 0.03, spread 0.02)](images/03-first-cards.png)
 

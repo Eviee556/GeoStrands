@@ -141,19 +141,27 @@ function hexToRgb(hex) {
 // not one per pixel — mirrors the app's guide-undo granularity.
 let paintUndoStack = [];
 export function pushPaintUndo() {
-  paintUndoStack.push(paint.toDataURL());
+  paintUndoStack.push({ paint: paint.toDataURL(), flow: flowCanvas.toDataURL() });
   if (paintUndoStack.length > 30) paintUndoStack.shift();
 }
 export function undoPaint() {
   if (paintUndoStack.length === 0) return false;
-  const dataURL = paintUndoStack.pop();
+  const snap = paintUndoStack.pop();
   const img = new Image();
-  img.onload = () => {
+  const flowImg = new Image();
+  let pending = 2;
+  const done = () => {
+    if (--pending > 0) return;
     pctx.clearRect(0, 0, paint.width, paint.height);
     pctx.drawImage(img, 0, 0);
+    fctx.clearRect(0, 0, flowCanvas.width, flowCanvas.height);
+    fctx.drawImage(flowImg, 0, 0);
     renderOutput();
   };
-  img.src = dataURL;
+  img.onload = done;
+  flowImg.onload = done;
+  img.src = snap.paint;
+  flowImg.src = snap.flow;
   return true;
 }
 
@@ -504,12 +512,20 @@ function drawTaperedStroke(ctx, points, baseRadius, colorHex, opacity, isPenStro
 
   const lengths = pathCumulativeLengths(points);
   const total = lengths[lengths.length - 1] || 1;
+  const spacing = Math.max(1, baseRadius * 0.5); // 25% of brush diameter
   for (let i = 0; i < points.length; i++) {
-    const t = total > 0 ? lengths[i] / total : 0;
-    const factor = widthProfileFactor(t, profile, taperFrac);
-    const r = Math.max(0.5, baseRadius * factor);
-    if (erase) eraseDab(ctx, points[i].x, points[i].y, r, opacity);
-    else drawBrushDab(ctx, points[i].x, points[i].y, r, colorHex, opacity);
+    const prev = points[i - 1] || points[i];
+    const seg = i > 0 ? lengths[i] - lengths[i - 1] : 0;
+    const steps = Math.max(1, Math.ceil(seg / spacing));
+    for (let s = 1; s <= steps; s++) {
+      const f = s / steps;
+      const x = prev.x + (points[i].x - prev.x) * f;
+      const y = prev.y + (points[i].y - prev.y) * f;
+      const factor = widthProfileFactor((lengths[i] - seg * (1 - f)) / total, profile, taperFrac);
+      const r = Math.max(0.5, baseRadius * factor);
+      if (erase) eraseDab(ctx, x, y, r, opacity);
+      else drawBrushDab(ctx, x, y, r, colorHex, opacity);
+    }
   }
 }
 
@@ -552,7 +568,7 @@ visible.addEventListener('mousedown', (evt) => {
   dragStart = p;
   if (currentBrush === 'paint' || currentBrush === 'eraser') {
     pushPaintUndo();
-    lastPaintPos = null;
+    lastPaintPos = p;
     lazyAnchor = lazyCheckbox.checked ? { x: p.x, y: p.y } : null;
     currentStrokePoints = [p];
     renderOutput();
@@ -679,7 +695,13 @@ visible.addEventListener('mousemove', (evt) => {
       if (currentBrush === 'paint' && lastPaintPos) {
         const dx = target.x - lastPaintPos.x, dy = target.y - lastPaintPos.y;
         const len = Math.hypot(dx, dy);
-        if (len > 0.5) stampFlowDab(target.x, target.y, dx / len, dy / len, Number(sizeSlider.value) / 2);
+        const radius = Number(sizeSlider.value) / 2;
+        const steps = Math.max(1, Math.ceil(len / Math.max(1, radius * 0.5)));
+        if (len > 0.5) {
+          for (let s = 1; s <= steps; s++) {
+            stampFlowDab(lastPaintPos.x + dx * s / steps, lastPaintPos.y + dy * s / steps, dx / len, dy / len, radius);
+          }
+        }
       }
       lastPaintPos = target;
     }
@@ -958,6 +980,18 @@ function hslToRgb(h, s, l) {
   return [r * 255, g * 255, b * 255];
 }
 
+// Seeded so the same paint + settings always give the same modifier pixels.
+const MODIFIER_SEED = 0x9e3779b9;
+function mulberry32(a) {
+  return () => {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+let modRand = mulberry32(MODIFIER_SEED);
+
 function applyLinearNoise(ctx, w, h) {
   const amount = Number(modEls.noise.value);
   const angleRad = (Number(document.getElementById('mod-noise-angle').value) * Math.PI) / 180;
@@ -968,12 +1002,12 @@ function applyLinearNoise(ctx, w, h) {
   ctx.save();
   ctx.globalCompositeOperation = 'source-atop'; // confine to already-painted (alpha) areas, same trick as Highlight Bands
   for (let i = 0; i < lineCount; i++) {
-    const cx = Math.random() * w;
-    const cy = Math.random() * h;
-    const len = (0.05 + Math.random() * 0.25) * diag * (0.3 + amount);
-    const shade = Math.random() < 0.5 ? 0 : 255; // dark or light strand streak
-    ctx.strokeStyle = `rgba(${shade},${shade},${shade},${0.15 + Math.random() * 0.25 * amount})`;
-    ctx.lineWidth = 0.6 + Math.random() * 1.2;
+    const cx = modRand() * w;
+    const cy = modRand() * h;
+    const len = (0.05 + modRand() * 0.25) * diag * (0.3 + amount);
+    const shade = modRand() < 0.5 ? 0 : 255; // dark or light strand streak
+    ctx.strokeStyle = `rgba(${shade},${shade},${shade},${0.15 + modRand() * 0.25 * amount})`;
+    ctx.lineWidth = 0.6 + modRand() * 1.2;
     ctx.beginPath();
     ctx.moveTo(cx - (dirX * len) / 2, cy - (dirY * len) / 2);
     ctx.lineTo(cx + (dirX * len) / 2, cy + (dirY * len) / 2);
@@ -996,14 +1030,14 @@ function applyPixelModifiers(ctx, w, h) {
   for (let i = 0; i < d.length; i += 4) {
     if (d[i + 3] === 0) continue; // skip fully transparent pixels
     if (doDotNoise) {
-      const n = (Math.random() - 0.5) * 255 * noiseAmt;
+      const n = (modRand() - 0.5) * 255 * noiseAmt;
       d[i] = Math.min(255, Math.max(0, d[i] + n));
       d[i + 1] = Math.min(255, Math.max(0, d[i + 1] + n));
       d[i + 2] = Math.min(255, Math.max(0, d[i + 2] + n));
     }
     if (hueOn) {
       const [h1, s1, l1] = rgbToHsl(d[i], d[i + 1], d[i + 2]);
-      const jitter = (Math.random() - 0.5) * hueAmt;
+      const jitter = (modRand() - 0.5) * hueAmt;
       const [r2, g2, b2] = hslToRgb((h1 + jitter + 1) % 1, s1, l1);
       d[i] = r2; d[i + 1] = g2; d[i + 2] = b2;
     }
@@ -1022,6 +1056,7 @@ const cctx = compositeCanvas.getContext('2d');
 
 function computeComposite() {
   const w = compositeCanvas.width, h = compositeCanvas.height;
+  modRand = mulberry32(MODIFIER_SEED);
   cctx.clearRect(0, 0, w, h);
   cctx.drawImage(paint, 0, 0);
   if (modEls.roottipEnabled.checked) applyRootTipGradient(cctx, w, h);

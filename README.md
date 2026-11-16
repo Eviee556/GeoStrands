@@ -54,7 +54,7 @@ Hair cards are textured strips of geometry that stand in for thousands of indivi
 ## Getting started
 
 **Windows (no install):**
-1. Download `GeoStrands-v0.1.0-win.zip` from [Releases](https://github.com/Eviee556/GeoStrands/releases/latest).
+1. Download `GeoStrands-v0.1.1-win.zip` from [Releases](https://github.com/Eviee556/GeoStrands/releases/latest).
 2. Unzip it and double-click **`GeoStrands.exe`**. The app opens in its own window.
 3. Load `examples/sample-hairstyle.geostrands.json` with **File → Open Project**.
 
@@ -100,8 +100,6 @@ docs/           documentation and screenshots
 
 ## Roadmap
 
-- Fix texture assignment on project load (cards currently need a Regenerate after opening)
-- Alpha-cutout (masked) materials in glTF export
 - Continuous card strips with proper strand-following orientation
 - Binary FBX and full PSD layer import
 - LOD generation presets

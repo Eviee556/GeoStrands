@@ -70,24 +70,28 @@ window.addEventListener('mouseup', () => {
 });
 
 export function loadImageFromDataURL(dataURL, filename) {
-  const img = new Image();
-  img.onload = () => {
-    store.atlasImage = img;
-    store.atlasImageURL = dataURL;
-    store.atlasFileName = filename;
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onerror = () => resolve(null);
+    img.onload = () => {
+      store.atlasImage = img;
+      store.atlasImageURL = dataURL;
+      store.atlasFileName = filename;
 
-    // Fit canvas to a reasonable working resolution, preserving aspect ratio.
-    const maxDim = 900;
-    const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
-    canvas.width = Math.round(img.width * scale);
-    canvas.height = Math.round(img.height * scale);
-    canvas.style.display = 'block';
-    emptyHint.style.display = 'none';
-    filenameLabel.textContent = filename;
-    redraw();
-    emit('atlas-image-changed', img);
-  };
-  img.src = dataURL;
+      // Fit canvas to a reasonable working resolution, preserving aspect ratio.
+      const maxDim = 900;
+      const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.style.display = 'block';
+      emptyHint.style.display = 'none';
+      filenameLabel.textContent = filename;
+      redraw();
+      emit('atlas-image-changed', img);
+      resolve(img);
+    };
+    img.src = dataURL;
+  });
 }
 
 document.getElementById('btn-import-atlas').addEventListener('click', async () => {
@@ -195,9 +199,10 @@ function refreshRegionList() {
 }
 
 export function restoreAtlasFromProject(projectAtlas) {
-  if (!projectAtlas || !projectAtlas.imageURL) return;
+  if (!projectAtlas || !projectAtlas.imageURL) return Promise.resolve();
   store.regions = projectAtlas.regions || [];
-  loadImageFromDataURL(projectAtlas.imageURL, projectAtlas.fileName || 'restored-atlas');
+  const loaded = loadImageFromDataURL(projectAtlas.imageURL, projectAtlas.fileName || 'restored-atlas');
   refreshRegionList();
   emit('regions-changed', store.regions);
+  return loaded;
 }

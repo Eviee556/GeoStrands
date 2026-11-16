@@ -35,9 +35,10 @@ The project also embeds its painted 512×512 atlas with one tagged region, `clum
 
 1. Click **Open** in the title bar and choose `sample-hairstyle.geostrands.json`.
 2. Right-drag to orbit to a side view.
-3. Click **Layer 1** in the guide list and press **Regenerate Cards**, then do the same for **Layer 2**. This is a workaround for a current issue: freshly opened projects can show flat-colored cards until you press Regenerate Cards.
 
-![The sample hairstyle after regenerating both layers: 28 guides, 182 textured cards](images/04-sample-project-loaded.png)
+The cards come up textured as soon as the project opens.
+
+![The sample hairstyle right after opening: 28 guides, 182 textured cards](images/04-sample-project-loaded.png)
 
 **Result:** 182 cards, 728 triangles and 1,456 vertices (14 × 7 cards + 14 × 6 cards). With the default 120-card target, the Budget Dashboard reads *Over budget (182 / 120)*. Examples 2 and 3 start from this point.
 
@@ -51,7 +52,7 @@ Things to try:
 
 **Goal:** fit the sample under a real-time budget of about 120 cards (roughly 500 triangles).
 
-1. Open the sample and regenerate both layers, as in Example 1.
+1. Open the sample, as in Example 1.
 2. In the Viewport's right panel, scroll to **Budget Dashboard** and set **Target card budget** to **120**. The status reads *Over budget (182 / 120)*.
 3. Go to the **Hair** tab, set **Density ×** to **0.5** and press **Apply to All Guides & Regenerate**.
    - Layer 1 goes from density 6 to 3, and Layer 2 from 5 to 3 (the value is rounded). Each guide now carries 4 cards.
@@ -80,7 +81,7 @@ Things to try:
 
 **Goal:** much denser, more overlapping cards for close-up shots.
 
-1. Open the sample and regenerate both layers (or undo the game-ready pass with Ctrl+Z).
+1. Open the sample again (or undo the game-ready pass with Ctrl+Z).
 2. On the **Hair** tab, set **Density ×** to **3** and **Spread ×** to **1.5**, then press **Apply to All Guides & Regenerate**.
    - Layer 1 goes from density 6 to 18, and Layer 2 from 5 to 15. Spread grows by half, which loosens the strips.
 3. Set **Target card budget** to **600**.
@@ -149,19 +150,19 @@ What's in the file, based on how the exporter is set up:
 
 - **One mesh per card.** Cards are exported individually at their real size, without the on-screen visibility boost. Each card is two-sided geometry, so no two-sided material flag is needed.
 - **A standard PBR material** with the atlas as base color and roughness 0.6. Each guide gets its own material, all pointing at the same texture.
-- **Alpha mode BLEND.** The cards use a transparent material, so the glTF alpha mode is BLEND. For card hair you will usually want to switch the material to alpha-clip / masked in the engine, to avoid sorting artifacts.
+- **Alpha mode MASK.** The cards are written as cutout materials (glTF alpha mode MASK, alpha cutoff 0.35), which is what card hair usually wants, with no sorting artifacts. Most importers set up alpha clipping from this automatically.
 
 ### Blender
 
 1. **File > Import > glTF 2.0 (.glb/.gltf)** and pick `hair-cards.glb`.
 2. Select all the card objects and press **Ctrl+J** to join them into one hair mesh.
-3. In the material settings, change the blend mode from *Alpha Blend* to *Alpha Clip* (or *Dithered* in newer Blender versions) if you see sorting problems.
+3. The material comes in with alpha clipping already set from the glTF MASK mode. If the cards look solid, check that the blend mode is *Alpha Clip* (or *Dithered* in newer Blender versions).
 
 ### Unreal Engine
 
 1. Import `hair-cards.glb` through the Content Browser (**Import**). Recent Unreal versions import glTF directly; older ones need the glTF Importer plugin enabled.
 2. If the importer offers to combine meshes, turn it on so the groom comes in as one Static Mesh.
-3. In the material, set **Blend Mode** to *Masked* and feed the texture's alpha into *Opacity Mask*. For translucency or root darkening, use the extra maps from **Export Simple**.
+3. In the material, check that **Blend Mode** is *Masked* with the texture's alpha feeding *Opacity Mask* (the glTF MASK mode should set this up). For translucency or root darkening, use the extra maps from **Export Simple**.
 4. This is card hair, so it imports as a **Static Mesh**, not a Groom asset (Groom assets are for strand-simulated hair).
 
 ### Unity
@@ -172,7 +173,7 @@ What's in the file, based on how the exporter is set up:
 ### Godot
 
 1. Copy `hair-cards.glb` into your project folder. Godot imports glTF natively and creates a scene you can instance.
-2. On the hair material, change **Transparency** from *Alpha* to *Alpha Scissor* for card hair.
+2. The hair material should import with **Transparency** set to *Alpha Scissor* from the glTF MASK mode. If it shows *Alpha*, switch it to *Alpha Scissor*.
 
 ### Other formats
 

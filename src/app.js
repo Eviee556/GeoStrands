@@ -743,6 +743,7 @@ function regenerateCards(guide) {
     side: THREE.FrontSide, // geometry itself is two-sided now (see makeTwoSidedPlaneGeometry) — cheaper and export-safe
     roughness: 0.6,
   });
+  applyHairTabSettings(material);
 
   for (let i = 0; i < samples.length; i++) {
     const pos = samples[i];
@@ -1115,6 +1116,7 @@ function refreshAtlasDropdown() {
   atlasSliceSelect.value = current || '-1';
 }
 on('regions-changed', refreshAtlasDropdown);
+refreshAtlasDropdown(); // replaces the static HTML option, whose value "" matches no guide
 
 const symmetryCheckbox = document.getElementById('symmetry-mode');
 
@@ -1391,6 +1393,7 @@ document.getElementById('btn-apply-scatter').addEventListener('click', () => {
     newGuide.length = source.length;
     newGuide.locked = true;
     finishGuideEdit(newGuide);
+    regenerateCards(newGuide);
   }
   refreshGuideList();
   updateBudgetDashboard();
@@ -1582,6 +1585,15 @@ hairTintInput.addEventListener('input', () => {
 });
 
 // --- Emissive (with a clickable hue-gradient strip) and Specular/Roughness ---
+
+// Reads the inputs by id because regenerateCards can run before the consts below are initialized.
+function applyHairTabSettings(mat) {
+  const tint = document.getElementById('hair-tint').value;
+  if (tint !== '#ffffff') mat.color.set(tint); // untouched tint keeps the per-guide flat color
+  mat.emissive.set(document.getElementById('hair-emissive-color').value);
+  mat.emissiveIntensity = Number(document.getElementById('hair-emissive-intensity').value);
+  mat.roughness = Number(document.getElementById('hair-roughness').value);
+}
 
 function forEachUniqueCardMaterial(fn) {
   const seen = new Set();
@@ -2059,11 +2071,19 @@ canvas.addEventListener('mousemove', (evt) => {
   selectedVertIndices.forEach((idx) => {
     posAttr.setXYZ(idx, posAttr.getX(idx) + localDelta.x, posAttr.getY(idx) + localDelta.y, posAttr.getZ(idx) + localDelta.z);
   });
+  syncTwoSidedBackFace(selectedCard);
   posAttr.needsUpdate = true;
   selectedCard.userData.prevLocal = null; // let gravity re-settle from this new shape
   refreshVertMarkers();
   refreshCardHighlight();
 });
+
+// Unsubdivided cards are 8-vertex two-sided geometry (front 0-3, back 4-7 in the same order); selection only indexes the front.
+function syncTwoSidedBackFace(card) {
+  if (card.userData.segments !== 1) return;
+  const posAttr = card.geometry.getAttribute('position');
+  for (let i = 0; i < 4; i++) posAttr.setXYZ(i + 4, posAttr.getX(i), posAttr.getY(i), posAttr.getZ(i));
+}
 
 function rebuildCardGeometry(card, segments) {
   // NOTE: intentionally single-sided PlaneGeometry here, not
@@ -2239,6 +2259,7 @@ function applyGrab(worldDelta) {
     const orig = transformOriginalVertLocal[i];
     posAttr.setXYZ(idx, orig.x + localDelta.x, orig.y + localDelta.y, orig.z + localDelta.z);
   });
+  syncTwoSidedBackFace(selectedCard);
   posAttr.needsUpdate = true;
   refreshVertMarkers();
   refreshCardHighlight();
@@ -2266,6 +2287,7 @@ function applyScale(factor) {
     const p = centroid.clone().add(scaled);
     posAttr.setXYZ(idx, p.x, p.y, p.z);
   });
+  syncTwoSidedBackFace(selectedCard);
   posAttr.needsUpdate = true;
   refreshVertMarkers();
   refreshCardHighlight();
@@ -2286,6 +2308,7 @@ function applyRotate(deltaAngle) {
     const p = centroid.clone().add(rel);
     posAttr.setXYZ(idx, p.x, p.y, p.z);
   });
+  syncTwoSidedBackFace(selectedCard);
   posAttr.needsUpdate = true;
   refreshVertMarkers();
   refreshCardHighlight();
@@ -2372,6 +2395,7 @@ function cancelTransform() {
       const orig = transformOriginalVertLocal[i];
       posAttr.setXYZ(idx, orig.x, orig.y, orig.z);
     });
+    syncTwoSidedBackFace(selectedCard);
     posAttr.needsUpdate = true;
     refreshVertMarkers();
     refreshCardHighlight();
@@ -2991,8 +3015,14 @@ document.getElementById('btn-export-gltf').addEventListener('click', () => {
   // there's no risk of a visible glitch or a half-modified state if the
   // (partly async) exporter takes a moment.
   const exportGroup = new THREE.Group();
+  const exportMaterials = new Map(); // one clone per live material, so the exporter still dedupes them
   allCardMeshes.forEach((c) => {
-    const clone = new THREE.Mesh(c.geometry, c.material);
+    if (!exportMaterials.has(c.material)) {
+      const mat = c.material.clone();
+      mat.transparent = false; // with alphaTest kept, the exporter writes alphaMode MASK + alphaCutoff instead of BLEND
+      exportMaterials.set(c.material, mat);
+    }
+    const clone = new THREE.Mesh(c.geometry, exportMaterials.get(c.material));
     clone.position.copy(c.position);
     clone.quaternion.copy(c.quaternion);
     clone.scale.setScalar(c.userData.manualScale || 1); // real size, not the visibility boost
@@ -3135,7 +3165,7 @@ function loadProjectFromJSON(jsonString, filePath) {
   }
   activeLayerId = project.activeLayerId ?? layers[0].id;
 
-  if (project.atlas) restoreAtlasFromProject(project.atlas);
+  const atlasReady = project.atlas ? restoreAtlasFromProject(project.atlas) : null;
 
   project.guides.forEach((gd) => {
     const guide = makeGuide();
@@ -3153,6 +3183,9 @@ function loadProjectFromJSON(jsonString, filePath) {
     computeRestLengths(guide);
     regenerateCards(guide);
   });
+  const loadedGuides = guides.slice();
+  // The atlas image decodes asynchronously, so cards built above have no texture yet.
+  if (atlasReady) atlasReady.then(() => loadedGuides.forEach((g) => { if (guides.includes(g)) regenerateCards(g); }));
   selectGuide(guides[guides.length - 1] || null);
   updateBudgetDashboard();
   if (filePath) lastProjectFilePath = filePath;
