@@ -32,13 +32,14 @@ function report() {
 if (!existsSync(APP)) { check('dist/GeoStrands.html exists', false, 'run `npm run build` first'); report(); }
 
 // --- Browser session: load, open sample, trigger exports ---
-const executablePath = existsSync(LOCAL_CHROME) ? LOCAL_CHROME : process.env.CHROME_PATH || undefined;
+const executablePath = process.env.CHROME_PATH || (existsSync(LOCAL_CHROME) ? LOCAL_CHROME : undefined);
 const browser = await chromium.launch({ executablePath, headless: true, args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
 const pageErrors = [];
 page.on('pageerror', (e) => pageErrors.push('pageerror: ' + e.message));
 page.on('console', (m) => { if (m.type() === 'error') pageErrors.push('console: ' + m.text()); });
-page.on('dialog', (d) => d.accept());
+const dialogs = []; // app alert() text, reported if an export produces nothing
+page.on('dialog', (d) => { dialogs.push(d.message()); d.accept(); });
 
 const files = {}; // export id -> { filename: Buffer }
 let pending = [], tag = '';
@@ -48,10 +49,10 @@ page.on('download', (dl) => { const t = tag; pending.push(dl.path().then((p) => 
 async function exportVia(id, count) {
   pending = []; tag = id;
   await page.click('#btn-export-' + id);
-  const deadline = Date.now() + 60_000;
+  const deadline = Date.now() + 180_000; // software-rendered CI runners are several times slower than a desktop
   while (pending.length < count && Date.now() < deadline) await page.waitForTimeout(100);
   await Promise.all(pending);
-  if (pending.length < count) throw new Error(`expected ${count} download(s), got ${pending.length}`);
+  if (pending.length < count) throw new Error(`expected ${count} download(s), got ${pending.length}${dialogs.length ? `; app alerts: ${dialogs.join(' | ')}` : ''}`);
 }
 
 await group('app loads', async () => {
@@ -73,7 +74,7 @@ await group('exports triggered', async () => {
   await page.click('.tab-btn[data-tab="export"]');
   await page.click('#btn-export-browse'); // web build: sets the folder to "Downloads"
   for (const id of ['exp-albedo', 'exp-alpha', 'exp-height', 'exp-roottip', 'exp-flow', 'exp-translucency']) await page.check('#' + id);
-  for (const [id, n] of EXPORTS) await group(`export ${id}`, async () => { await exportVia(id, n); check(`export ${id}`, true, `${n} file(s)`); });
+  for (const [id, n] of EXPORTS) await group(`export ${id}`, async () => { const t0 = Date.now(); await exportVia(id, n); check(`export ${id}`, true, `${n} file(s), ${((Date.now() - t0) / 1000).toFixed(1)}s`); });
 });
 await page.waitForTimeout(500); // let late async errors surface
 check('no page/console errors', pageErrors.length === 0, pageErrors.slice(0, 3).join(' | ') || 'none');
