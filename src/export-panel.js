@@ -1,4 +1,19 @@
 import { getCompositeCanvas, getFlowCanvas } from './texture-gen.js';
+import { store } from './state.js';
+
+// Maps come from the Texture Canva composite; when nothing was painted there,
+// fall back to the loaded atlas image so the maps match the textured cards.
+function getMapSourceCanvas() {
+  const composite = getCompositeCanvas();
+  if (!store.atlasImage) return composite;
+  const data = composite.getContext('2d').getImageData(0, 0, composite.width, composite.height).data;
+  for (let i = 3; i < data.length; i += 4) if (data[i] !== 0) return composite;
+  const canvas = document.createElement('canvas');
+  canvas.width = store.atlasImage.width;
+  canvas.height = store.atlasImage.height;
+  canvas.getContext('2d').drawImage(store.atlasImage, 0, 0);
+  return canvas;
+}
 
 // Channel sources this tool can honestly derive from a flat painted texture.
 // (No Strand ID / Normal / Specular / Ambient — those need real per-strand
@@ -101,7 +116,7 @@ document.getElementById('btn-export-browse').addEventListener('click', async () 
 document.getElementById('btn-export-simple').addEventListener('click', async () => {
   if (!folderInput.value) { alert('Choose an output folder first.'); return; }
   const prefix = document.getElementById('export-prefix').value || 'hair';
-  const composite = getCompositeCanvas();
+  const composite = getMapSourceCanvas();
   const files = [];
 
   if (document.getElementById('exp-albedo').checked) {
@@ -187,7 +202,7 @@ document.getElementById('btn-export-advanced').addEventListener('click', async (
   if (!folderInput.value) { alert('Choose an output folder first.'); return; }
   if (outputImages.length === 0) { alert('Add at least one output image.'); return; }
   const prefix = document.getElementById('export-prefix').value || 'hair';
-  const composite = getCompositeCanvas();
+  const composite = getMapSourceCanvas();
 
   const files = outputImages.map((img) => ({
     filename: `${prefix}_${img.name || 'Output'}.png`,

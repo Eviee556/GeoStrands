@@ -169,7 +169,7 @@ Both tools act on the **selected guide** (click one in the list first). **Brush 
 2. Drag a rectangle over one clump on the atlas.
 3. Type a **Region name** and press **Tag Selection as Region**.
 4. Repeat for each clump. Regions appear in *Tagged Regions* with a thumbnail, and the ✕ button deletes one. **Clear All** removes them all, and Ctrl+Z undoes region changes in this tab.
-5. If the painting appears upside down on the cards, tick **Flip texture vertically**.
+5. If the painting appears upside down on the cards, tick **Flip texture vertically**. The cards rebuild with each strip flipped inside its region, and exports keep the flip. Guides set to *none* are not affected.
 
 ![Atlas Editor: three tagged regions (clump_wide, clump_mid, clump_thin) and a new selection in progress](images/06-atlas-editor-regions.png)
 
@@ -207,7 +207,7 @@ The **Render** tab is a final-look preview, also with its own camera:
 - **Ambient occlusion**: screen-space contact darkening.
 - **Filmic tone mapping (ACES)** with **Exposure**.
 - **Bloom**: strength, radius and threshold.
-- **Show stats overlay**: FPS, guides, cards, quads and triangles. The overlay appears in the **Viewport** tab's 3D view, not in the Render view.
+- **Show stats overlay**: FPS, guides, cards, quads and triangles. The overlay appears in the **Viewport** tab's 3D view, and in the Render preview while the Render tab is open. The settings column scrolls on its own, so the preview stays in view while you reach the lower options.
 
 ![Render tab with High Fidelity, soft shadows, AO, ACES tone mapping and bloom enabled](images/15-render-tab.png)
 
@@ -237,9 +237,9 @@ Everything is on the **Export** tab. In the browser build, files go to your norm
 | --- | --- | --- |
 | **Export OBJ (geometry only)** | `hair-cards.obj` | Same as the title-bar **Export OBJ** button. Plain card geometry. |
 | **Export OBJ + MTL (with texture)** | `hair-cards.obj`, `hair-cards.mtl`, `hair-cards_albedo.png` | The texture file is written only when an atlas is loaded. |
-| **Export glTF Binary (.glb, textured)** | `hair-cards.glb` | One file with the texture embedded. The most reliable cross-engine option. |
-| **Export FBX (ASCII, best-effort)** | `hair-cards.fbx` | Experimental. Written by hand against the ASCII FBX structure and not validated against Autodesk tools. |
-| **Export USD (.usda, textured mesh)** | `hair-cards.usda` + `hair-cards_albedo.png` | Experimental. |
+| **Export glTF Binary (.glb, textured)** | `hair-cards.glb` | One file with the texture embedded. The most reliable cross-engine option. Passes the Khronos glTF validator with no errors or warnings. |
+| **Export FBX (ASCII, best-effort)** | `hair-cards.fbx` | Experimental. Written by hand against the ASCII FBX structure. It loads cleanly in three.js but has not been tested in Autodesk tools or Blender, and it carries no texture. |
+| **Export USD (.usda, textured mesh)** | `hair-cards.usda` + `hair-cards_usd_albedo.png` | Experimental. The texture file is written only when an atlas is loaded. Passes the OpenUSD validator. |
 | **Export Guide Curves (.usda, real strand data)** | `hair-guides.usda` | Experimental. Your guide points as USD `BasisCurves`, for USD-aware tools that work with curves. |
 
 All model exports use real card sizes. The on-screen visibility boost is never exported.
@@ -258,7 +258,7 @@ All model exports use real card sizes. The on-screen visibility boost is never e
    - **Translucency (alpha-based approx.)**: `prefix_Translucency.png`
 3. Press **Export Simple**.
 
-These maps are built from the **Texture Canva** painting. The app deliberately doesn't offer Normal, Specular, AO or Strand ID maps, because a flat painted texture has no data to derive them from.
+These maps are built from the **Texture Canva** painting. If nothing is painted there and an atlas is loaded, they are built from the atlas image instead, so you don't get blank maps. The app deliberately doesn't offer Normal, Specular, AO or Strand ID maps, because a flat painted texture has no data to derive them from.
 
 ### Channel-packed maps (Advanced Export)
 

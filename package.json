@@ -1,6 +1,6 @@
 {
   "name": "geostrands",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Hair card authoring tool for real-time and cinematic hair: guide curves, density-driven card generation, comb/drag physics, atlas editing and multi-format export.",
   "type": "module",
   "license": "MIT",

@@ -121,6 +121,9 @@ function pushRegionUndo() {
   regionUndoStack.push(JSON.stringify(store.regions));
   if (regionUndoStack.length > 30) regionUndoStack.shift();
 }
+export function clearAtlasUndo() {
+  regionUndoStack = [];
+}
 export function undoAtlas() {
   if (regionUndoStack.length === 0) return false;
   store.regions = JSON.parse(regionUndoStack.pop());
@@ -191,6 +194,7 @@ function refreshRegionList() {
       refreshRegionList();
       redraw();
       emit('regions-changed', store.regions);
+      emit('region-deleted', i);
     });
 
     row.append(swatch, label, del);

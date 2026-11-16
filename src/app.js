@@ -9,7 +9,7 @@ import { OutputPass } from './vendor/postprocessing/OutputPass.js';
 import { GLTFExporter } from './vendor/exporters/GLTFExporter.js';
 import { refreshBakePreview } from './bake-colors.js';
 import { undoPaint } from './texture-gen.js';
-import { undoAtlas } from './atlas.js';
+import { undoAtlas, clearAtlasUndo } from './atlas.js';
 import { store, on, emit } from './state.js';
 import './atlas.js';
 import { restoreAtlasFromProject } from './atlas.js';
@@ -485,6 +485,7 @@ function serializeState() {
       spread: g.spread,
       taper: g.taper,
       atlasRegionIndex: g.atlasRegionIndex,
+      mirrorOf: guides.indexOf(g.mirrorOf),
     })),
   };
 }
@@ -531,8 +532,16 @@ function restoreState(state) {
     computeRestLengths(guide);
     regenerateCards(guide);
   });
+  linkMirrors(state.guides);
   selectGuide(guides[guides.length - 1] || null);
   updateBudgetDashboard();
+}
+
+// Guides were just rebuilt in saved order, so a saved index is a position in `guides`.
+function linkMirrors(savedGuides) {
+  savedGuides.forEach((gd, i) => {
+    if (gd.mirrorOf >= 0 && guides[gd.mirrorOf]) guides[i].mirrorOf = guides[gd.mirrorOf];
+  });
 }
 
 function undo() {
@@ -637,7 +646,6 @@ function getAtlasTexture() {
   if (!store.atlasImage) return null;
   if (atlasTexture && atlasTextureSourceImage === store.atlasImage) return atlasTexture;
   atlasTexture = new THREE.Texture(store.atlasImage);
-  atlasTexture.flipY = !document.getElementById('atlas-flip-v').checked;
   atlasTexture.needsUpdate = true;
   atlasTexture.colorSpace = THREE.SRGBColorSpace;
   atlasTextureSourceImage = store.atlasImage;
@@ -671,14 +679,8 @@ document.getElementById('btn-import-head-texture').addEventListener('click', asy
   img.src = `data:${mime};base64,${result.data}`;
 });
 
-document.getElementById('atlas-flip-v').addEventListener('change', (evt) => {
-  if (atlasTexture) {
-    atlasTexture.flipY = !evt.target.checked;
-    atlasTexture.needsUpdate = true;
-  }
-  // Cards were built with UVs baked against the old orientation, so they
-  // need a real regenerate — a texture-property flip alone doesn't fix
-  // geometry that already has UVs authored for the other direction.
+document.getElementById('atlas-flip-v').addEventListener('change', () => {
+  // remapUVs bakes the flip into card UVs (so exports match the viewport), hence a real regenerate.
   guides.forEach((g) => regenerateCards(g));
   updateBudgetDashboard();
 });
@@ -770,6 +772,7 @@ function regenerateCards(guide) {
     card.position.copy(pos).addScaledVector(right, jitter);
     card.rotateOnAxis(tangent, rotJitter);
     card.userData = {
+      jitterQuat: card.quaternion.clone(), // lets repositionAutoCards keep any manual rotation on top
       guide,
       basisMatrix: basis.clone(),
       manualScale: 1, // separate from cardVisibilityBoost (an editing aid) — see applyCardScale
@@ -822,10 +825,15 @@ function repositionAutoCards(guide) {
     card.geometry.dispose();
     card.geometry = geo;
     card.userData.basisMatrix = basis;
+    addCardOutline(card);
 
+    // Manual Edit rotations are applied on top of the jitter rotation, so carry that remainder over.
+    const manualQuat = card.userData.jitterQuat ? card.userData.jitterQuat.clone().invert().multiply(card.quaternion) : new THREE.Quaternion();
     card.position.copy(pos).addScaledVector(right, card.userData.jitter);
     card.rotation.set(0, 0, 0);
     card.rotateOnAxis(tangent, card.userData.rotJitter);
+    card.userData.jitterQuat = card.quaternion.clone();
+    card.quaternion.multiply(manualQuat);
   });
 }
 
@@ -898,9 +906,10 @@ function makeTwoSidedPlaneGeometry(width, height, widthSegments, heightSegments)
 
 function remapUVs(geometry, region) {
   const uvAttr = geometry.getAttribute('uv');
+  const flipV = document.getElementById('atlas-flip-v').checked;
   for (let i = 0; i < uvAttr.count; i++) {
     const u = uvAttr.getX(i);
-    const v = uvAttr.getY(i);
+    const v = flipV ? 1 - uvAttr.getY(i) : uvAttr.getY(i);
     uvAttr.setXY(
       i,
       region.u0 + u * (region.u1 - region.u0),
@@ -1116,6 +1125,17 @@ function refreshAtlasDropdown() {
   atlasSliceSelect.value = current || '-1';
 }
 on('regions-changed', refreshAtlasDropdown);
+on('region-deleted', (index) => {
+  guides.forEach((g) => {
+    if (g.atlasRegionIndex > index) g.atlasRegionIndex -= 1;
+    else if (g.atlasRegionIndex === index) {
+      g.atlasRegionIndex = -1;
+      if (g.cardsGroup.children.length > 0) regenerateCards(g);
+    }
+  });
+  if (selectedGuide) atlasSliceSelect.value = selectedGuide.atlasRegionIndex;
+  updateBudgetDashboard();
+});
 refreshAtlasDropdown(); // replaces the static HTML option, whose value "" matches no guide
 
 const symmetryCheckbox = document.getElementById('symmetry-mode');
@@ -2663,8 +2683,9 @@ function gatherMeshQuadData() {
         const uniq2 = tri2.find((x) => !set1.has(x));
         const uniq1 = tri1.find((x) => !shared.includes(x));
         if (shared.length === 2 && uniq1 !== undefined && uniq2 !== undefined) {
-          const [p, q] = shared;
-          quads.push([uniq1, p, uniq2, q].map((idx) => idx + vOffset));
+          // Walk tri1's own winding from its unique corner so reversed back faces stay reversed.
+          const k = tri1.indexOf(uniq1);
+          quads.push([uniq1, tri1[(k + 1) % 3], uniq2, tri1[(k + 2) % 3]].map((idx) => idx + vOffset));
         }
       }
       vOffset += posAttr.count;
@@ -2718,6 +2739,19 @@ GlobalSettings:  {
 \t\tP: "CoordAxis", "int", "Integer", "",0
 \t\tP: "CoordAxisSign", "int", "Integer", "",1
 \t\tP: "UnitScaleFactor", "double", "Number", "",100
+\t}
+}
+Definitions:  {
+\tVersion: 100
+\tCount: 3
+\tObjectType: "Geometry" {
+\t\tCount: 1
+\t}
+\tObjectType: "Model" {
+\t\tCount: 1
+\t}
+\tObjectType: "Material" {
+\t\tCount: 1
 \t}
 }
 Objects:  {
@@ -2793,6 +2827,7 @@ Objects:  {
 \t}
 }
 Connections:  {
+\tC: "OO",2000000000,0
 \tC: "OO",1000000000,2000000000
 \tC: "OO",3000000000,2000000000
 }
@@ -2821,6 +2856,7 @@ function buildUSDAMesh({ positions, uvs, quads }, textureFileName) {
                 uniform token info:id = "UsdPreviewSurface"
                 color3f inputs:diffuseColor.connect = </hair_cards/Materials/HairMaterial/DiffuseTexture.outputs:rgb>
                 float inputs:opacity.connect = </hair_cards/Materials/HairMaterial/DiffuseTexture.outputs:a>
+                float inputs:opacityThreshold = 0.5
                 token outputs:surface
             }
             def Shader "DiffuseTexture"
@@ -2834,7 +2870,7 @@ function buildUSDAMesh({ positions, uvs, quads }, textureFileName) {
             def Shader "stReader"
             {
                 uniform token info:id = "UsdPrimvarReader_float2"
-                token inputs:varname = "st"
+                string inputs:varname = "st"
                 float2 outputs:result
             }
         }
@@ -2843,13 +2879,18 @@ function buildUSDAMesh({ positions, uvs, quads }, textureFileName) {
   return `#usda 1.0
 (
     defaultPrim = "hair_cards"
+    metersPerUnit = 1
     upAxis = "Y"
 )
 
 def Xform "hair_cards"
 {
-    def Mesh "cards"
+    def Mesh "cards" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
     {
+        uniform token subdivisionScheme = "none"
+        uniform bool doubleSided = 1
         int[] faceVertexCounts = [${faceVertexCounts}]
         int[] faceVertexIndices = [${faceVertexIndices}]
         point3f[] points = [${pointsStr.join(', ')}]
@@ -2871,10 +2912,13 @@ function buildUSDACurves() {
   const curveVertexCounts = activeGuides.map((g) => g.points.length).join(', ');
   const pointsStr = [];
   activeGuides.forEach((g) => g.points.forEach((p) => pointsStr.push(`(${p.x.toFixed(6)}, ${p.y.toFixed(6)}, ${p.z.toFixed(6)})`)));
+  // One constant strand width: the average card width (scene units are meters).
+  const width = activeGuides.reduce((sum, g) => sum + (g.cardWidth || 0.045), 0) / activeGuides.length;
 
   return `#usda 1.0
 (
     defaultPrim = "hair_guides"
+    metersPerUnit = 1
     upAxis = "Y"
 )
 
@@ -2884,6 +2928,9 @@ def BasisCurves "hair_guides"
     uniform token wrap = "nonperiodic"
     int[] curveVertexCounts = [${curveVertexCounts}]
     point3f[] points = [${pointsStr.join(', ')}]
+    float[] widths = [${width.toFixed(6)}] (
+        interpolation = "constant"
+    )
 }
 `;
 }
@@ -2931,8 +2978,9 @@ function buildOBJText(withMaterials) {
         const uniq1 = tri1.find((x) => !shared.includes(x));
 
         if (shared.length === 2 && uniq1 !== undefined && uniq2 !== undefined) {
-          const [p, q] = shared;
-          const quad = [uniq1, p, uniq2, q].map((idx) => idx + 1 + vOffset);
+          // Walk tri1's own winding from its unique corner so reversed back faces stay reversed.
+          const k = tri1.indexOf(uniq1);
+          const quad = [uniq1, tri1[(k + 1) % 3], uniq2, tri1[(k + 2) % 3]].map((idx) => idx + 1 + vOffset);
           lines.push(`f ${quad.map((n) => `${n}/${n}`).join(' ')}`);
           quadCount++;
         } else {
@@ -3020,6 +3068,8 @@ document.getElementById('btn-export-gltf').addEventListener('click', () => {
     if (!exportMaterials.has(c.material)) {
       const mat = c.material.clone();
       mat.transparent = false; // with alphaTest kept, the exporter writes alphaMode MASK + alphaCutoff instead of BLEND
+      // A black or zero-strength emissive is "no emission": normalize so no empty KHR_materials_emissive_strength is written.
+      if (mat.emissive && (mat.emissive.getHex() === 0 || mat.emissiveIntensity === 0)) { mat.emissive.setHex(0); mat.emissiveIntensity = 1; }
       exportMaterials.set(c.material, mat);
     }
     const clone = new THREE.Mesh(c.geometry, exportMaterials.get(c.material));
@@ -3064,13 +3114,13 @@ document.getElementById('btn-export-usd').addEventListener('click', async () => 
     alert('Nothing to export yet — generate some cards first.');
     return;
   }
-  const usdaText = buildUSDAMesh(meshData, store.atlasImage ? 'hair-cards_albedo.png' : null);
+  const usdaText = buildUSDAMesh(meshData, store.atlasImage ? 'hair-cards_usd_albedo.png' : null);
   const savedPath = await window.hcsAPI.exportText('Export USD (.usda)', 'hair-cards.usda', 'USD ASCII', ['usda'], usdaText);
   if (!savedPath) return;
   if (store.atlasImage) {
     // Write the referenced texture alongside, matching the @filename@ reference above.
     const dir = savedPath.substring(0, savedPath.lastIndexOf(savedPath.includes('\\') ? '\\' : '/') + 1);
-    const files = [{ filename: 'hair-cards_albedo.png', dataURL: `data:image/png;base64,${getCompositeTextureBase64()}` }];
+    const files = [{ filename: 'hair-cards_usd_albedo.png', dataURL: `data:image/png;base64,${getCompositeTextureBase64()}` }];
     await window.hcsAPI.writeExportFiles(dir, files);
   }
   hintEl.textContent = `Exported: ${savedPath} (experimental USDA)`;
@@ -3103,6 +3153,7 @@ function buildProjectJSON() {
       spread: g.spread,
       taper: g.taper,
       atlasRegionIndex: g.atlasRegionIndex,
+      mirrorOf: guides.indexOf(g.mirrorOf),
     })),
     atlas: store.atlasImageURL
       ? { imageURL: store.atlasImageURL, fileName: store.atlasFileName, regions: store.regions }
@@ -3183,6 +3234,9 @@ function loadProjectFromJSON(jsonString, filePath) {
     computeRestLengths(guide);
     regenerateCards(guide);
   });
+  linkMirrors(project.guides);
+  undoStack.length = 0;
+  clearAtlasUndo();
   const loadedGuides = guides.slice();
   // The atlas image decodes asynchronously, so cards built above have no texture yet.
   if (atlasReady) atlasReady.then(() => loadedGuides.forEach((g) => { if (guides.includes(g)) regenerateCards(g); }));
@@ -3260,6 +3314,8 @@ function animate(now) {
   fpsSmoothed = fpsSmoothed ? fpsSmoothed * 0.9 + instFps * 0.1 : instFps;
   const statsEl = document.getElementById('render-stats-overlay');
   if (statsEl && !statsEl.classList.contains('hidden')) {
+    const statsWrap = document.getElementById(activeTab === 'render' ? 'render-viewport-wrap' : 'viewport-canvas-wrap');
+    if (statsEl.parentElement !== statsWrap) statsWrap.appendChild(statsEl);
     let totalCards = 0, totalTris = 0;
     guides.forEach((g) => {
       totalCards += g.cardsGroup.children.length;
@@ -3288,6 +3344,8 @@ if (window.hcsAPI) {
     nextLayerId = 1;
     activeLayerId = 0;
     lastProjectFilePath = null;
+    undoStack.length = 0;
+    clearAtlasUndo();
     store.atlasImage = null;
     store.atlasImageURL = null;
     store.atlasFileName = '';

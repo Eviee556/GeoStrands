@@ -2,7 +2,7 @@
 
 By Charlize Pauli
 
-GeoStrands is a hair card authoring tool that runs in the browser. You place a few guide curves on a head, and it builds textured hair cards around them, lets you comb and simulate them, and exports a mesh any engine can load. This is the story of why I built it, the decisions that shaped it, and what I learned on the way. It is a work in progress (version 0.1.0), and I mention the rough edges where they matter.
+GeoStrands is a hair card authoring tool that runs in the browser. You place a few guide curves on a head, and it builds textured hair cards around them, lets you comb and simulate them, and exports a mesh any engine can load. This is the story of why I built it, the decisions that shaped it, and what I learned on the way. It is a work in progress (version 0.1.2), and I mention the rough edges where they matter.
 
 ---
 
@@ -45,7 +45,7 @@ That decision paid off when I moved to the browser. Porting meant writing one ne
 
 ### OBJ and glTF first
 
-I put the most effort into the formats I could check myself: OBJ/MTL and glTF binary. OBJ is the lowest common denominator. I write real quads rather than triangle pairs, so a cleanup in a DCC is quicker. GLB carries the textures and materials in one file. FBX (ASCII) and USDA are there too, but they are hand-written text formats that I have not checked against every target tool, and the UI says so. The USD guide-curve export is the honest answer for groom-style pipelines: it writes the real guide points as `BasisCurves`, not invented strand data.
+I put the most effort into the formats I could check myself: OBJ/MTL and glTF binary. OBJ is the lowest common denominator. I write real quads rather than triangle pairs, so a cleanup in a DCC is quicker. GLB carries the textures and materials in one file. FBX (ASCII) and USDA are there too. They are hand-written text formats that I have not checked in every target tool, and the UI says so. The USD guide-curve export is the honest answer for groom-style pipelines: it writes the real guide points as `BasisCurves`, not invented strand data.
 
 ### A single-file offline build
 
@@ -65,7 +65,7 @@ Orientation was the first real design question. Camera-facing billboards look fi
 
 Card hair has to be visible from both sides, and the obvious fix, a double-sided material flag, does not survive the trip through OBJ. There is no standard way to mark it there. So I build the back face as real geometry: a duplicated plane with flipped normals and reversed winding. This doubles the triangle count, and the budget dashboard counts it honestly because it measures the actual index buffers.
 
-That led to a nice detail in export. The mesh is made of plane grids, so each pair of triangles shares a diagonal. The OBJ writer finds the shared edge and rebuilds a clean quad, whatever the winding, so it works for the reversed back faces too.
+That led to a nice detail in export. The mesh is made of plane grids, so each pair of triangles shares a diagonal. The OBJ and FBX/USD writers find the shared edge and rebuild a clean quad that follows the first triangle's own winding, so the reversed back faces stay reversed.
 
 ### 3. Atlas regions
 
@@ -114,6 +114,7 @@ The last big step was the move from the original desktop shell to a standalone w
 - **Two merge functions, two assumptions.** The head importer joins non-indexed meshes, and the card builder joins indexed ones. A merge that ignores index offsets would scramble the triangles of indexed card geometry without any error, so there are two functions, each with its assumption written down.
 - **Card size in the viewport.** Real card widths are tiny at head scale, so the viewport scales cards up by an adjustable amount (6× by default) to keep them visible. Every exporter resets that scale before writing, so exported sizes are true.
 - **Keeping cards attached during simulation.** Cards are rebuilt on the moving curve every frame, and each keeps its original random offset and twist, so they follow the strand without flickering.
+- **Checking exports with validators.** I ran the GLB through the Khronos glTF validator and the USD files through the OpenUSD validators, and fixed what they reported until both came back clean.
 - **Outlines and picking.** Card outlines and selection highlights are children of the cards, so raycasting is turned off on them. Otherwise they took clicks meant for the card surface.
 
 ## What's next
@@ -121,10 +122,10 @@ The last big step was the move from the original desktop shell to a standalone w
 GeoStrands is usable but unfinished. The work I care most about:
 
 1. **Continuous card strips** with UVs that run the length of the atlas region, and a proper twist control along each guide.
-2. **Saving everything**: Manual Edit changes and symmetry pairs in the project file and in undo.
+2. **Saving everything**: Manual Edit changes in the project file and in undo. Symmetry pairs are already saved.
 3. **Better sorting for cinematic renders**, such as an alpha-to-coverage path.
 4. **Better import**: a real PSD decoder and more than one atlas per project.
 5. **Faster physics** with an acceleration structure for head collision, and more controls (wind, per-guide stiffness).
-6. **Checked FBX and USD output**, and card LODs for game budgets.
+6. **FBX checked in Autodesk tools and Blender**, with a texture node, and card LODs for game budgets.
 
 If you try it, the sample project in `examples/` is the quickest way in: open it from File > Open Project, orbit with right-drag, and turn on physics with Space.

@@ -666,6 +666,8 @@ select {
 }
 
 #hair-global-panel, #render-panel { width: 320px; flex-shrink: 0; }
+/* Scroll the settings column on its own so reaching lower checkboxes doesn't scroll the preview away. */
+#render-panel { align-self: stretch; }
 #hair-summary-panel { width: 240px; flex-shrink: 0; }
 #hair-global-panel .panel-section,
 #hair-summary-panel .panel-section,

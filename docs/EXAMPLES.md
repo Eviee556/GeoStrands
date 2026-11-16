@@ -178,7 +178,7 @@ What's in the file, based on how the exporter is set up:
 ### Other formats
 
 - **OBJ + MTL** works almost everywhere. The texture is written as `hair-cards_albedo.png` next to the `.mtl`.
-- **FBX (ASCII)** and **USD (.usda)** are marked *experimental* in the app. They were written against the formats' documented text structure without validation in Autodesk or Pixar tools, so try glTF first.
+- **FBX (ASCII)** and **USD (.usda)** are marked *experimental* in the app. The USD mesh passes the OpenUSD validator and writes its texture as `hair-cards_usd_albedo.png`. The FBX loads cleanly in three.js but has not been tested in Autodesk tools or Blender, and it has no texture, so try glTF first.
 - **Guide Curves (.usda)** exports your actual guide points as USD `BasisCurves`. This is useful in USD-aware tools that can grow strands or a groom from curves.
 
 ---
