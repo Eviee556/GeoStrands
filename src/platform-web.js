@@ -47,7 +47,8 @@
     document.body.appendChild(a);
     a.click();
     a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    // Revoke late: slow machines start reading queued downloads seconds after click(), and an early revoke drops them silently.
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
     return filename;
   }
   const b64ToBlob = (b64, type) => {

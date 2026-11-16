@@ -28,7 +28,10 @@ Contents
 npm install
 npm start          # serves src/ on http://localhost:8080 and opens it
 npm run build      # writes the single-file app to dist/GeoStrands.html
+npm test           # opens the built app headless, runs every export and validates the files
 ```
+
+`npm test` needs the build first and a Chromium browser. It uses Chrome from its default Windows install folder or the browser in `CHROME_PATH`. Otherwise run `npx playwright-core install chromium` once.
 
 ### The screen
 
@@ -168,7 +171,7 @@ Both tools act on the **selected guide** (click one in the list first). **Brush 
 1. In Texture Canva, press **Send to Atlas Editor**. The painting becomes the atlas and the app switches tabs. You can also bring in a finished atlas with **Import Atlas (PNG / JPG / PSD)**. PSD support reads the composite image where possible; if a PSD fails, flatten it and export as PNG.
 2. Drag a rectangle over one clump on the atlas.
 3. Type a **Region name** and press **Tag Selection as Region**.
-4. Repeat for each clump. Regions appear in *Tagged Regions* with a thumbnail, and the ✕ button deletes one. **Clear All** removes them all, and Ctrl+Z undoes region changes in this tab.
+4. Repeat for each clump. Regions appear in *Tagged Regions* with a thumbnail, and the ✕ button deletes one. **Clear All** removes them all and sets guides that used them back to *none*. Ctrl+Z undoes region changes in this tab, including Clear All and deletes, and puts the guides back on their regions.
 5. If the painting appears upside down on the cards, tick **Flip texture vertically**. The cards rebuild with each strip flipped inside its region, and exports keep the flip. Guides set to *none* are not affected.
 
 ![Atlas Editor: three tagged regions (clump_wide, clump_mid, clump_thin) and a new selection in progress](images/06-atlas-editor-regions.png)
@@ -238,7 +241,7 @@ Everything is on the **Export** tab. In the browser build, files go to your norm
 | **Export OBJ (geometry only)** | `hair-cards.obj` | Same as the title-bar **Export OBJ** button. Plain card geometry. |
 | **Export OBJ + MTL (with texture)** | `hair-cards.obj`, `hair-cards.mtl`, `hair-cards_albedo.png` | The texture file is written only when an atlas is loaded. |
 | **Export glTF Binary (.glb, textured)** | `hair-cards.glb` | One file with the texture embedded. The most reliable cross-engine option. Passes the Khronos glTF validator with no errors or warnings. |
-| **Export FBX (ASCII, best-effort)** | `hair-cards.fbx` | Experimental. Written by hand against the ASCII FBX structure. It loads cleanly in three.js but has not been tested in Autodesk tools or Blender, and it carries no texture. |
+| **Export FBX (ASCII, best-effort)** | `hair-cards.fbx` + `hair-cards_fbx_albedo.png` | Experimental. Written by hand against the ASCII FBX structure. The texture file and the material's texture link are written only when an atlas is loaded. It loads cleanly in three.js, texture included, but has not been tested in Autodesk tools or Blender. |
 | **Export USD (.usda, textured mesh)** | `hair-cards.usda` + `hair-cards_usd_albedo.png` | Experimental. The texture file is written only when an atlas is loaded. Passes the OpenUSD validator. |
 | **Export Guide Curves (.usda, real strand data)** | `hair-guides.usda` | Experimental. Your guide points as USD `BasisCurves`, for USD-aware tools that work with curves. |
 

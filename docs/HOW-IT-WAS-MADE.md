@@ -2,7 +2,7 @@
 
 By Charlize Pauli
 
-GeoStrands is a hair card authoring tool that runs in the browser. You place a few guide curves on a head, and it builds textured hair cards around them, lets you comb and simulate them, and exports a mesh any engine can load. This is the story of why I built it, the decisions that shaped it, and what I learned on the way. It is a work in progress (version 0.1.2), and I mention the rough edges where they matter.
+GeoStrands is a hair card authoring tool that runs in the browser. You place a few guide curves on a head, and it builds textured hair cards around them, lets you comb and simulate them, and exports a mesh any engine can load. This is the story of why I built it, the decisions that shaped it, and what I learned on the way. It is a work in progress (version 0.1.3), and I mention the rough edges where they matter.
 
 ---
 
@@ -83,6 +83,8 @@ For a quick check of how hair would hang, I added a small verlet simulation: pin
 
 Head collision gave me a second lesson. A sphere formula is fine for the placeholder but wrong for any real head, so collision casts a ray from the head center outward and pushes points back to the first surface hit. It works for any reasonably round imported mesh. It also needs the head material to be double-sided, because the ray starts inside the mesh.
 
+Those rays turned out to be the expensive part. Every guide point casts one per step, and the default head has about 48,000 triangles, so on the sample project a single physics step took 333 ms. I put the head behind a bounding volume hierarchy from three-mesh-bvh, which returns the same hits, and skipped the ray entirely for points already outside the head. Cards also stopped getting new geometry every frame: their existing vertices are rewritten in place. The same step now takes about 5 ms.
+
 ### 6. Manual Edit
 
 The density-driven workflow is the core, but artists always want to nudge a single card. Manual Edit lets you click a card, click again to pick a vertex, edge or face, and drag it. You can also use Blender-style G/S/R with X/Y/Z axis constraints, subdivide a card into rows, and let subdivided cards sag under their own small gravity sim.
@@ -107,14 +109,18 @@ Undo stores snapshots: guide and layer state is serialized before each action, a
 
 The last big step was the move from the original desktop shell to a standalone web build. Thanks to the platform layer, most of the work went into the build script, not the app: inlining assets, putting the head mesh in a data URL so `file://` works, and making sure nothing in the bundle needs a server.
 
+### 11. Testing the exports automatically
+
+Checking exports by hand did not scale, and a fix in one exporter kept breaking another. So `npm test` now does what I used to do manually. It opens the built app headless, loads the sample project, presses every export button and checks what comes out: the GLB goes through the Khronos glTF validator and has to come back with zero errors and zero warnings, the OBJ and FBX files are parsed with the three.js loaders (including a check that every card's back face really faces backwards and that the FBX material has its texture), the USD files are checked for the right structure and units, and every PNG map has to contain something. GitHub Actions runs it on every push and pull request, so a broken export shows up before a release.
+
 ---
 
 ## Challenges worth remembering
 
 - **Two merge functions, two assumptions.** The head importer joins non-indexed meshes, and the card builder joins indexed ones. A merge that ignores index offsets would scramble the triangles of indexed card geometry without any error, so there are two functions, each with its assumption written down.
 - **Card size in the viewport.** Real card widths are tiny at head scale, so the viewport scales cards up by an adjustable amount (6× by default) to keep them visible. Every exporter resets that scale before writing, so exported sizes are true.
-- **Keeping cards attached during simulation.** Cards are rebuilt on the moving curve every frame, and each keeps its original random offset and twist, so they follow the strand without flickering.
-- **Checking exports with validators.** I ran the GLB through the Khronos glTF validator and the USD files through the OpenUSD validators, and fixed what they reported until both came back clean.
+- **Keeping cards attached during simulation.** Cards are re-placed on the moving curve every frame, by rewriting their existing vertices rather than building new geometry, and each keeps its original random offset and twist, so they follow the strand without flickering.
+- **Checking exports with validators.** I ran the GLB through the Khronos glTF validator and the USD files through the OpenUSD validators, and fixed what they reported until both came back clean. The glTF validator and the three.js loader checks now run in the automated test.
 - **Outlines and picking.** Card outlines and selection highlights are children of the cards, so raycasting is turned off on them. Otherwise they took clicks meant for the card surface.
 
 ## What's next
@@ -125,7 +131,7 @@ GeoStrands is usable but unfinished. The work I care most about:
 2. **Saving everything**: Manual Edit changes in the project file and in undo. Symmetry pairs are already saved.
 3. **Better sorting for cinematic renders**, such as an alpha-to-coverage path.
 4. **Better import**: a real PSD decoder and more than one atlas per project.
-5. **Faster physics** with an acceleration structure for head collision, and more controls (wind, per-guide stiffness).
-6. **FBX checked in Autodesk tools and Blender**, with a texture node, and card LODs for game budgets.
+5. **More physics**: guide-to-guide collision, wind and per-guide stiffness.
+6. **FBX checked in Autodesk tools and Blender**, and card LODs for game budgets.
 
 If you try it, the sample project in `examples/` is the quickest way in: open it from File > Open Project, orbit with right-drag, and turn on physics with Space.

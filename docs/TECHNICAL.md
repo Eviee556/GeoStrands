@@ -2,7 +2,7 @@
 
 GeoStrands is a browser-based hair card authoring tool. An artist places a few sparse guide curves on a head mesh. The tool turns each guide into a run of textured, two-sided quads ("hair cards") whose count, width, spread and taper come from per-guide settings. Cards are mapped into regions of a texture atlas, can be shaped with a comb tool or a small verlet simulation, and export to OBJ/MTL, GLB, ASCII FBX and USDA. A second half of the app is a 2D texture workbench for painting strand textures and exporting derived maps (alpha, height, root-tip, flow, translucency).
 
-This document describes what the code does today, with references to functions and files in `src/`. The project is version 0.1.2 and is a work in progress. Where the code has a known gap, it is listed in the last section rather than described as working.
+This document describes what the code does today, with references to functions and files in `src/`. The project is version 0.1.3 and is a work in progress. Where the code has a known gap, it is listed in the last section rather than described as working.
 
 ---
 
@@ -20,8 +20,9 @@ The app is plain ES modules on top of a vendored copy of Three.js r160. There is
 | `src/bake-colors.js` | Bake & Colors tab: brightness/contrast/HSL/invert/remap/solid adjustments on the composite, with an optional bake back into the paint layer. |
 | `src/export-panel.js` | Export tab (texture half): simple map export and channel-packed "advanced" export. |
 | `src/preferences.js` | Preferences modal: UI theme colors, card outline color, autosave on/off and interval. All stored in `localStorage`. |
-| `src/vendor/` | Unmodified Three.js r160 plus addons: `OrbitControls`, `OBJLoader`, `GLTFExporter`, `EffectComposer`, `RenderPass`, `SSAOPass`, `UnrealBloomPass`, `OutputPass` and their shaders. |
+| `src/vendor/` | Unmodified Three.js r160 plus addons: `OrbitControls`, `OBJLoader`, `GLTFExporter`, `EffectComposer`, `RenderPass`, `SSAOPass`, `UnrealBloomPass`, `OutputPass` and their shaders. Also three-mesh-bvh 0.7.8 for head raycasts (section 4.1). |
 | `scripts/build.mjs` | esbuild bundler that inlines everything into one offline `dist/GeoStrands.html`. |
+| `tests/e2e.mjs` | End-to-end test of the built app: opens the sample, runs every export and validates the files (section 10.1). |
 
 ### Module and data-flow diagram
 
@@ -112,7 +113,7 @@ Edits apply to `guidesToEdit()`: the multi-selection `selectedGuideSet` if it ha
 
 ### 2.3 Atlas regions
 
-`store.regions` (in `src/state.js`) holds `{ name, u0, v0, u1, v1 }` rectangles, normalized from 0 to 1 against the atlas image with **v measured from the top**. `atlas.js` creates them from a canvas drag (the button handler for `#btn-add-region` ignores rectangles smaller than 4 px) and names them `clump_NN` by default. Guides refer to regions **by index**. Deleting a region from the list emits `region-deleted` with its index. `app.js` then shifts down the index of every guide that pointed above it, sets guides that pointed at it to `-1` and rebuilds their cards. Clear All and region undo do not emit this event, so guide indices are left as they were (section 11).
+`store.regions` (in `src/state.js`) holds `{ name, u0, v0, u1, v1 }` rectangles, normalized from 0 to 1 against the atlas image with **v measured from the top**. `atlas.js` creates them from a canvas drag (the button handler for `#btn-add-region` ignores rectangles smaller than 4 px) and names them `clump_NN` by default. Guides refer to regions **by index**. Deleting a region from the list emits `region-deleted` with its index. `app.js` then shifts down the index of every guide that pointed above it, sets guides that pointed at it to `-1` and rebuilds their cards. **Clear All** emits `regions-cleared`, and `app.js` sets every guide's index to `-1` and rebuilds the cards of guides that had a region. Region undo keeps the guide links too: each region snapshot emits `region-undo-snapshot`, and `app.js` stores every guide's `atlasRegionIndex` in it. Undo emits `region-undo-restore`, which puts those indices back on the guides that still exist. A guide's cards are rebuilt only when its region rectangle actually changed, so a plain index shift keeps the cards as they are.
 
 ### 2.4 Project JSON schema
 
@@ -228,7 +229,7 @@ Region v is measured from the top of the image, and the atlas texture keeps the 
 
 ### 3.4 Following a moving guide: `repositionAutoCards(guide)`
 
-The comb tool and the physics step call this function every time the guide moves. It rebuilds the curve, and for each card with `segments === 1` it computes a position with `getPointAt(i / (n − 1))` and a new frame (same construction as above), rebuilds the two-sided plane, re-applies the UV remap and the basis, rebuilds the wireframe outline (`addCardOutline`) so it matches the new geometry, and restores the card's original `jitter` and `rotJitter`. Any manual rotation is kept: `userData.jitterQuat` (saved in `regenerateCards`) holds the jitter-only rotation, the difference between it and the current quaternion is taken as the manual part, and that part is applied again on top of the new jitter rotation. Cards subdivided in Manual Edit are skipped.
+The comb tool and the physics step call this function every time the guide moves. It rebuilds the curve, and for each card with `segments === 1` it computes a position with `getPointAt(i / (n − 1))` and a new frame (same construction as above), rewrites the card's existing geometry in place (`writeTwoSidedPlanePositions`: the 8 positions and normals of the two-sided plane, transformed by the new basis, with UVs and index unchanged), moves the wireframe outline's points to match (the outline is built once with `addCardOutline`, and each line point remembers which vertex it came from), and restores the card's original `jitter` and `rotJitter`. Any manual rotation is kept: `userData.jitterQuat` (saved in `regenerateCards`) holds the jitter-only rotation, the difference between it and the current quaternion is taken as the manual part, and that part is applied again on top of the new jitter rotation. Cards subdivided in Manual Edit are skipped. The vectors and matrices are reused, so live simulation allocates no new geometry per card per frame. A card without the 8-vertex layout falls back to building a new plane.
 
 ### 3.5 Manual Edit mode
 
@@ -331,7 +332,7 @@ All mesh exporters use world-space card vertices at true scale (`manualScale` on
 | OBJ | `buildOBJText(false)` → `hcsAPI.exportOBJ` | One object `hair_cards`, `v` and `vt` per vertex, `f a/a b/b c/c d/d` quads. No normals. |
 | OBJ + MTL | `buildOBJText(true)`, `buildMTLText`, `getCompositeTextureBase64` → `hcsAPI.exportOBJWithMTL` | Adds `mtllib hair-cards.mtl` and a `usemtl guide_<index>` block for each guide that has cards. The MTL has `illum 2`, `Kd 1 1 1` and, if an atlas is loaded, `map_Kd` and `map_d` set to `hair-cards_albedo.png`. That PNG is the atlas image (`store.atlasImage`) redrawn to a canvas. |
 | GLB | `GLTFExporter.parse(..., { binary: true })` → `hcsAPI.exportGLB` | Copies of every card (shared geometry, real scale) in a throwaway `Group`, so the live scene is never touched. Each live material is cloned once with `transparent: false`, so the exporter writes `alphaMode: MASK` with `alphaCutoff: 0.35` (from `alphaTest`) instead of BLEND. A black or zero-intensity emissive is normalized to black at intensity 1, so no empty `KHR_materials_emissive_strength` is written. Textures are embedded. The output passes the Khronos glTF validator with 0 errors and 0 warnings. The `ArrayBuffer` is base64-encoded for the platform call. |
-| FBX (ASCII 7.4) | `gatherMeshQuadData` → `buildFBXAscii` → `hcsAPI.exportText` | One `Geometry::hair_cards` with `Vertices`, `PolygonVertexIndex` (last index of each polygon stored as `-(i+1)`), per-polygon-vertex face normals from the first three quad corners, `IndexToDirect` UVs, one Phong material, a `Model`, a `Definitions` section (Geometry, Model and Material counts) and `OO` connections, including the model's connection to the scene root (`0`). No texture node is written. `UpAxis = 1` (Y), `UnitScaleFactor = 100`. It parses cleanly in the three.js `FBXLoader`, but is still marked best-effort in code and UI because it has not been checked in Autodesk tools or Blender. |
+| FBX (ASCII 7.4) | `gatherMeshQuadData` → `buildFBXAscii` → `hcsAPI.exportText` | One `Geometry::hair_cards` with `Vertices`, `PolygonVertexIndex` (last index of each polygon stored as `-(i+1)`), per-polygon-vertex face normals from the first three quad corners, `IndexToDirect` UVs, one Phong material, a `Model`, a `Definitions` section (Geometry, Model and Material counts) and `OO` connections, including the model's connection to the scene root (`0`). With an atlas loaded it also writes a `Video::hair_albedo` clip and a `Texture::hair_albedo` node that point at `hair-cards_fbx_albedo.png` (connected `OO` video to texture and `OP` texture to the material's `DiffuseColor`, with Texture and Video added to `Definitions`), and saves that PNG, the atlas image, next to the `.fbx`. Without an atlas there is no texture node. `UpAxis = 1` (Y), `UnitScaleFactor = 100`. It parses cleanly in the three.js `FBXLoader`, which also picks up the texture map, but is still marked best-effort in code and UI because it has not been checked in Autodesk tools or Blender. |
 | USDA mesh | `buildUSDAMesh(meshData, textureFileName)` | `Xform "hair_cards"` / `Mesh "cards"` (with `prepend apiSchemas = ["MaterialBindingAPI"]`, `subdivisionScheme = "none"`, `doubleSided = 1`) with `faceVertexCounts` (all 4), `faceVertexIndices`, `points` and face-varying `primvars:st`. With an atlas there is also a `UsdPreviewSurface` whose `diffuseColor` and `opacity` come from a `UsdUVTexture` on `hair-cards_usd_albedo.png`, read through a `UsdPrimvarReader_float2` (`string inputs:varname = "st"`), with `opacityThreshold = 0.5`, and the texture is written next to the file. Layer metadata: `metersPerUnit = 1`, `upAxis = "Y"`. Passes `UsdValidation`. |
 | USDA curves | `buildUSDACurves()` | `BasisCurves "hair_guides"`, `type = "linear"`, `curveVertexCounts` per guide, the **raw** guide points (no `length` scaling) and one constant `widths` value, the average `cardWidth` of the exported guides. `metersPerUnit = 1`, `upAxis = "Y"`. This is real strand data for USD-aware DCC tools and groom-style pipelines. |
 
@@ -354,7 +355,7 @@ All maps come from the Texture Canva **composite** canvas (`getCompositeCanvas`)
 - **Simple export** writes `<prefix>_Albedo/Alpha/Height/RootTip/Flow/Translucency.png`. Single-channel maps are grayscale with alpha set to 255 (`buildSingleChannelCanvas`). The flow map is the flow buffer copied as is (`buildFlowMapCanvas`).
 - **Advanced export** (`buildPackedCanvas`) packs any key into R, G, B and A for each output image. The default output is "Mask" = R alpha, G luminance, B root-tip, A empty. An `empty` alpha is written as 255 so the PNG previews normally.
 
-**Flow buffer** (`src/texture-gen.js`). Starts filled with `rgb(128,128,128)` (no direction). Each Paint Brush dab writes `R = (dx · 0.5 + 0.5) · 255` and `G = (dy · 0.5 + 0.5) · 255` from the normalized stroke direction (`stampFlowDab`, only when the pointer moved more than 0.5 px). Dabs are interpolated between pointer events at 25% of the brush diameter, and the stroke's first segment is recorded too. A Pen stroke cancelled with Esc still leaves its flow lines in the buffer. Each Pen segment does the same along the segment (`stampFlowLine`). Fill and gradients do not write to it.
+**Flow buffer** (`src/texture-gen.js`). Starts filled with `rgb(128,128,128)` (no direction). Each Paint Brush dab writes `R = (dx · 0.5 + 0.5) · 255` and `G = (dy · 0.5 + 0.5) · 255` from the normalized stroke direction (`stampFlowDab`, only when the pointer moved more than 0.5 px). Dabs are interpolated between pointer events at 25% of the brush diameter, and the stroke's first segment is recorded too. Each Pen segment does the same along the segment (`stampFlowLine`). Fill and gradients do not write to it. A Pen stroke snapshots the flow buffer when it starts, so cancelling it with Esc removes its flow lines along with its paint.
 
 ### 6.3 Texture Canva compositing (`src/texture-gen.js`)
 
@@ -366,7 +367,7 @@ Three canvases: `paint` (the strokes themselves), `compositeCanvas` (paint plus 
 4. **Linear noise**: `80 + 400 · amount` random dark or light streaks at the chosen angle, with `source-atop`.
 5. **Pixel pass** (`applyPixelModifiers`): dot noise adds `(rand − 0.5) · 255 · amount` to RGB, and hue jitter shifts each pixel's HSL hue by `(rand − 0.5) · amount`. Fully transparent pixels are skipped.
 
-`rand` in steps 4 and 5 is a mulberry32 PRNG reseeded with a fixed seed at the start of every `computeComposite`, so the same paint and settings always give the same pixels and exports are reproducible. Brush dabs are not seeded: the ink and textured brush styles still use `Math.random` while you paint.
+`rand` in steps 4 and 5 is a mulberry32 PRNG reseeded with a fixed seed at the start of every `computeComposite`, so the same paint and settings always give the same pixels and exports are reproducible. Brush dabs are seeded too: the ink and textured brush styles draw their jitter from `brushRand`, a mulberry32 PRNG that `drawTaperedStroke` reseeds on every redraw of a stroke with `seedForStroke`, a hash of the stroke's start point and the modifier seed. The live preview, the committed stroke and a Pen re-commit therefore get the same jitter, and repainting a stroke from the same start point gives the same pixels. The one visible difference between preview and commit is edge anti-aliasing: the paint, flow and composite canvases are created with `willReadFrequently: true` because they are read back often, so they are CPU-backed and can anti-alias edges slightly differently from the GPU-drawn visible canvas.
 
 The brush tools: dabs along the recorded path, interpolated so they are never more than 25% of the brush diameter apart (`drawTaperedStroke`), so fast strokes leave no gaps. The overlap makes semi-transparent brush styles build up slightly denser. Each dab's radius comes from `widthProfileFactor(t, profile, taperFrac)` (uniform, taper start/end/both, `sin(πt)`, `1 − 0.85 sin(πt)`, or a custom quadratic Bezier curve, never below 0.05). There are brush texture variants (smooth, watercolor, marker, ink, textured, or an imported stamp tinted with `source-atop`), an optional lazy-brush stabilizer (the anchor follows the pointer only after it leaves `lazyRadius`), a true stroked path for untapered Pen strokes (respecting cap and join), a 4-way stack flood fill with an RGBA tolerance of 40, and gradient shapes. Linear, radial, triangle and ellipse use canvas gradients. Square (Chebyshev distance) and diamond (Manhattan distance) are filled pixel by pixel.
 
@@ -383,7 +384,7 @@ There are three separate snapshot stacks. Which one Ctrl+Z (or Edit > Undo) uses
 | Tab | Stack | Depth | Snapshot |
 |---|---|---|---|
 | Texture Canva | `paintUndoStack` (`texture-gen.js`) | 30 | `paint.toDataURL()` and the flow buffer's `toDataURL()` |
-| Atlas Editor | `regionUndoStack` (`atlas.js`) | 30 | `JSON.stringify(store.regions)` |
+| Atlas Editor | `regionUndoStack` (`atlas.js`) | 30 | `JSON.stringify(store.regions)` plus each guide's `atlasRegionIndex`, filled in by `app.js` (section 2.3). Clear All is undoable. |
 | All other tabs | `undoStack` (`app.js`) | 50 (`MAX_UNDO`) | `serializeState()`: layers, active layer, guide fields as in the project file (including `mirrorOf`) |
 
 `pushUndoSnapshot()` runs before discrete actions. For continuous gestures (slider drags, comb and drag strokes), `beginUndoableEdit()` pushes one snapshot and sets `snapshotPending` until the next `mouseup`, so a whole drag is one undo step. `restoreState` tears down every guide and rebuilds them with `makeGuide` and `regenerateCards`. Card jitter is random again, guide ids are renumbered from 0, and `linkMirrors` restores the mirror pairs. New Project and Open Project empty both `undoStack` and `regionUndoStack` (`clearAtlasUndo`), so Ctrl+Z cannot reach back into the previous project.
@@ -411,9 +412,9 @@ Not covered: Manual Edit card and vertex edits, G/S/R transforms (which have the
 - **Texture memory** = `w × h × 4 × 1.33 / 2²⁰` MB for the atlas image: RGBA8 plus about a third for the mip chain, one texture shared by every card. For example, a 512 × 512 atlas is about 1.3 MB.
 - **Status** compares the card count to the budget target (slider 20 to 600, default 120): "within" at 85% or less, "near" up to 100%, "over" above that.
 
-It runs after card rebuilds, deletions, undo and load, and on `regions-changed` and `atlas-image-changed`. The Hair tab summary (`updateHairSummary`) and the stats overlay count the same way.
+It runs after card rebuilds, deletions, undo and load, and on `regions-changed` and `atlas-image-changed`. It also calls `updateHairSummary`, so the Hair tab's layer, guide, card and triangle totals stay current after load, regenerate, delete and undo. The stats overlay counts the same way.
 
-Per-frame costs to be aware of: while physics is on, every guide point does one raycast against the head mesh each frame, and every card on every moving guide is repositioned (`repositionAutoCards`). On the sample project (182 cards, 48,004-triangle head, headless Chrome with software WebGL) the BVH cut one head raycast from 3.75 ms to 0.017 ms, a physics step from 333 ms to 5.1 ms and the frame time with live simulation on from 204 ms to 47 ms. Repositioning all cards costs about 2 ms per step.
+Per-frame costs to be aware of: while physics is on, every guide point inside `headCollisionSkipRadius()` does one raycast against the head mesh each frame, and every card on every moving guide is repositioned (`repositionAutoCards`). On the sample project (182 cards, 48,004-triangle head, headless Chrome with software WebGL) the BVH cut one head raycast from 3.75 ms to 0.017 ms, a physics step from 333 ms to 5.1 ms and the frame time with live simulation on from 204 ms to 47 ms. Repositioning all cards costs about 2 ms per step.
 
 ---
 
@@ -424,7 +425,22 @@ Per-frame costs to be aware of: while physics is on, every guide point does one 
 - **Inline head mesh**: a small esbuild plugin (`inline-head-obj`) replaces the string literal `'./assets/head_placeholder.obj'` in `app.js` with a `data:text/plain;base64,…` URL, so `OBJLoader` can fetch it with no server.
 - **HTML assembly**: `index.html` gets the stylesheet inlined as `<style>`, the app icon as a data URL and `platform-web.js` as an inline classic script. The import map and the external module tags are removed (esbuild aliases the bare `three` import that three-mesh-bvh uses to `src/vendor/three.module.js`, so the bundle holds one copy of three.js), and the bundle goes into one `<script type="module">` before `</body>`. The script aborts if a `src="app.js"` tag is still there.
 - **Output**: `dist/GeoStrands.html` (about 5 MB), which opens by double-click and runs fully offline.
-- **CI**: `.github/workflows/pages.yml` builds on every push to `main` and publishes the file as `index.html` on GitHub Pages.
+- **CI**: `.github/workflows/pages.yml` builds on every push to `main` and publishes the file as `index.html` on GitHub Pages. `.github/workflows/test.yml` runs the end-to-end test (section 10.1) on every push and pull request to `main`.
+
+### 10.1 Testing (`tests/e2e.mjs`)
+
+`npm test` runs `node tests/e2e.mjs` against the built file, so run `npm run build` first (the test fails with a message if `dist/GeoStrands.html` is missing). It uses `playwright-core` to open the app headless in Chromium with software WebGL (SwiftShader). A local Chrome install is used if there is one, otherwise `CHROME_PATH` or the Playwright browser. The test opens `examples/sample-hairstyle.geostrands.json` through the Open Project button, waits until the budget dashboard shows 182 cards and the atlas memory, then clicks every export button in the Export tab (glTF, OBJ, OBJ + MTL, FBX, USD mesh, USD curves and the six simple texture maps) and checks the downloaded files in Node:
+
+| File | Checks |
+|---|---|
+| GLB | Khronos `gltf-validator`: 0 errors and 0 warnings. 182 meshes, every primitive textured, at least one embedded image. |
+| OBJ, OBJ + MTL | three.js `OBJLoader` gives 728 triangles with finite positions. Every card's front and back faces are coincident with opposite winding. The MTL's `map_` lines name PNGs that were downloaded. |
+| FBX | `Vertices`, `PolygonVertexIndex`, `Normals`, `UV` and `UVIndex` counts match their declarations and all indices are in range. three.js `FBXLoader` parses it into meshes, and the material has a texture map. |
+| USD mesh | `metersPerUnit = 1`, the `cards` mesh, `HairMaterial` and `DiffuseTexture` prims, 364 faces with a matching index count, and the referenced texture was downloaded. |
+| USD curves | `metersPerUnit = 1` and `BasisCurves "hair_guides"` with 28 curves and a matching point count. |
+| PNG maps | Every downloaded PNG is decoded with `pngjs` and must not be blank. The sample's flow map may be uniform neutral (128, 128), since nothing is painted. |
+
+Any page error or console error during the run is also a failure. The test prints one row per check (33 on the sample project) and exits non-zero if any check fails.
 
 ---
 
@@ -437,19 +453,17 @@ Limitations visible in the current code:
 - **No camera-facing mode.** Cards are fixed in world space.
 - **Manual Edit is not saved or undoable.** Subdivided cards are single-sided in exports.
 - **Alpha in the viewport**: `transparent: true` together with `alphaTest` blends with depth writes on, so sorting artifacts are possible on screen. glTF export is not affected: it clones each material with `transparent: false`, so `GLTFExporter` writes `alphaMode: MASK` with `alphaCutoff: 0.35`.
-- **Brush randomness**: Texture Canva modifiers are seeded, but the ink and textured brush styles use `Math.random` per dab, so repainting the same stroke gives slightly different pixels.
 - **PSD import** is best-effort (the browser decodes the image). Flattened PNG is recommended.
-- **Export validation**: GLB passes the Khronos glTF validator (0 errors, 0 warnings), USDA passes `UsdValidation`, and OBJ and FBX parse cleanly in the three.js loaders. FBX has not been tested in Autodesk tools or Blender, and it has no texture node, so the material comes in untextured.
-- **Atlas region indices**: undoing a region delete restores the region but not the guide links that the delete reset to `-1`. Clear All does not reset guide indices, so guides keep pointing at indices that no longer exist.
+- **Export validation**: GLB passes the Khronos glTF validator (0 errors, 0 warnings), USDA passes `UsdValidation`, and OBJ and FBX parse cleanly in the three.js loaders. These checks run in `npm test` (section 10.1). FBX has not been tested in Autodesk tools or Blender.
 - **Guides with no region** map the whole atlas image when one is loaded, and Flip V does not affect them.
 - **Browser limits**: folder exports become individual downloads, there is one autosave slot in `localStorage`, and "recent files" is not available.
-- **Physics** has no guide-to-guide collision, no wind and and no per-guide stiffness. Collision still casts one ray per guide point per step. The BVH makes each ray cheap, but the cost still grows with point count.
+- **Physics** has no guide-to-guide collision, no wind and no per-guide stiffness. Collision still casts one ray per guide point per step. The BVH makes each ray cheap, but the cost still grows with point count.
 
 Next steps, in priority order:
 
 1. Continuous card strips with UVs that run the length of the region, plus a parallel-transport frame with a twist control.
-2. Saving Manual Edit changes in the project file and covering them in undo, and keeping guide region links intact through region undo and Clear All.
+2. Saving Manual Edit changes in the project file and covering them in undo.
 3. An optional alpha-to-coverage or sorted path for cinematics.
 4. A proper PSD decoder and multi-atlas support.
 5. Collision against an SDF instead of per-point raycasts.
-6. Checking the FBX output in Autodesk tools and Blender and adding a texture node, testing USD in target DCC tools and engines, and LOD card reduction for game budgets.
+6. Checking the FBX output in Autodesk tools and Blender, testing USD in target DCC tools and engines, and LOD card reduction for game budgets.
