@@ -140,7 +140,8 @@ document.getElementById('btn-export-simple').addEventListener('click', async () 
 
   if (files.length === 0) { alert('Enable at least one map to export.'); return; }
   const written = await window.hcsAPI.writeExportFiles(folderInput.value, files);
-  alert(`Exported ${written.length} file(s) to ${folderInput.value}`);
+  // Status line, not alert(): a modal opened right after the download clicks can cancel them in some browsers.
+  document.getElementById('export-status').textContent = `Exported ${written.length} file(s) to ${folderInput.value}`;
 });
 
 // --- Advanced export (channel packing) ---
@@ -210,7 +211,8 @@ document.getElementById('btn-export-advanced').addEventListener('click', async (
   }));
 
   const written = await window.hcsAPI.writeExportFiles(folderInput.value, files);
-  alert(`Exported ${written.length} file(s) to ${folderInput.value}`);
+  // Status line, not alert(): a modal opened right after the download clicks can cancel them in some browsers.
+  document.getElementById('export-status').textContent = `Exported ${written.length} file(s) to ${folderInput.value}`;
 });
 
 renderOutputList();
